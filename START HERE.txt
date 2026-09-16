@@ -1,0 +1,21 @@
+SEAL MODEL COMPARISON TOOL
+==========================
+
+QUICK START
+
+1. Extract the whole Design_System folder from the ZIP file.
+2. Install Python 3.10 or newer from https://www.python.org/downloads/
+   During installation, select "Add python.exe to PATH".
+3. Open PowerShell in this folder and run this command once:
+
+   py -m pip install -r "requirements.txt"
+
+4. Double-click LAUNCH_GUI.pyw to start the GUI.
+
+Keep LAUNCH_GUI.pyw beside the seal_calculations_2 folder. Do not move the
+launcher out of this folder.
+
+If double-clicking does not work, right-click LAUNCH_GUI.pyw, choose
+"Open with", and select Python.
+
+The detailed user manual is in seal_calculations_2\README.md.

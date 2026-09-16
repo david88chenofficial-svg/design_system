@@ -1,0 +1,377 @@
+Recording transcript
+
+Okay. So we are talking about the design system here.
+
+The ultimate goal of the entire design system is to provide us outputs about:
+
+aerodynamic design,
+mechanical design,
+fluid–structure interaction, to avoid flutter and all this vibration stuff,
+and then assemblability, manufacturability, and presumably costs and stuff like that.
+
+That particular block, that picture, is about aerodynamic design only — first, the main bits of the aerodynamic design.
+
+What I want you guys to do is to have VS Code, Obsidian, and the knowledge base you're making integrated.
+
+So this is kind of a sketch of how Obsidian could look, in my idealistic perception. I don't know exactly how it works, but basically, if I go to “Define targets” and click there, it should open the exact point in VS Code. ChatGPT says it's doable — basically, you can link it to bits of the code.
+
+So I'm saying: where do you define this bloody target? Why 80%?
+
+And it should go to the code and say:
+
+“This is the database where we define 80%.”
+
+Then I can check this 80% statement or whatever it is.
+
+VS Code obviously has all the tools, and we live in this mindset of tools and creating tools. So once we've created tools — once MIMI has created some workflow — we move them to the tools stack, where we say:
+
+“We trust them. Leave them there.”
+
+And then they become tools.
+
+I split this image, called Aero Design, into two big sections.
+
+One is called inverse design, and the other is direct design.
+
+That's the classic aerodynamic approach.
+
+Inverse vs direct design
+
+Inverse design means:
+
+You create geometry to deliver performance.
+
+Say I tell you:
+
+“Give me a seal with a pressure ratio of 10.”
+
+And you give me the number of teeth, number of features, shapes, etc.
+
+Then the direct problem means:
+
+If I give you that number of teeth, that geometry and those gaps, you give me the flow; you give me the pressure distribution.
+
+So:
+
+one is geometry to deliver performance;
+the other one is given geometry → calculate performance.
+
+Right?
+
+Then the job starts from the inverse design tool, where we define inputs.
+
+You see, I split every section into two columns as well.
+
+One column is Jobs.
+One column is Tools.
+
+“Jobs” are what we essentially need to do, and then every job might call different functions or different tools on the left.
+
+Here I've drawn just some tools, but you might need more tools.
+
+And tools can be used by different jobs.
+
+For example, in my direct design, when I say calculate pressure distribution, I have things like:
+
+gas properties,
+\(C_d\) estimation,
+carry-over coefficients,
+and so on.
+
+I can use the same tools for different design gaps.
+
+Later, I'll be referring to different gaps — say, when the seal is moving: \(g_1\), \(g_2\), or something.
+
+But they again use the same gas properties and the same \(C_d\).
+
+So different jobs might still reuse the same tool, for example the gas-properties tool.
+
+That's why I have two columns:
+
+jobs we need to do;
+tools we might call.
+1. Define inputs
+
+The first job for inverse design is define inputs.
+
+We define what we need: what gaps, what information do we already have, etc.
+
+The tools on the left include:
+
+First, if the input is given, fine — just use the input.
+
+Second, you can evaluate it. For example, maybe you have different pressures or something. Then evaluate whatever is missing.
+
+And if you cannot evaluate it, then ask a human being.
+
+Say:
+
+“Sorry, I don't know the input gap. What gap do you want?”
+
+So there would be a tool calling a human being for intervention.
+
+2. Define targets
+
+Then second is define targets.
+
+Say we need:
+
+ten times lower leakage;
+a certain force for our floating stator at 80% of the gap.
+
+So we've moved, say, 80% either side.
+
+We need a force — say, I don't know, 50% of the balancing force. We need sufficient force to push it.
+
+And maybe some other targets.
+
+If I click in Obsidian on “What are the targets?”, there will be a list of targets there.
+
+3. Apply limits
+
+Then we apply limits.
+
+We might say:
+
+no fewer than three teeth on each side — no single tooth or something;
+tooth geometry has a minimum thickness — I don't know, maybe 1 mm minimum;
+we cannot manufacture it thinner.
+
+So these are geometric limitations.
+
+Again, they should be clickable, and we should have a table of what limitations we have.
+
+4. Use design rules
+
+Then the most important next step is:
+
+Use design rules.
+
+These design rules are actually now in Dash's code; they're just arbitrarily written.
+
+For example, the first design rule is to set your proportions.
+
+So you have a radial space.
+
+Radial space means: where your rotor ends and where your main stator starts — how much radial space you have.
+
+Then you arbitrarily say:
+
+“Well, 50% of that space will be my rotor disc sticking out.”
+
+Another 20–30% will be the room for the intermediate chamber, and so on.
+
+Then I give, for example, 5% of that space as a gap between my floating stator and the rotor here.
+
+These are rules.
+
+I don't know — they're arbitrary for now — but we'll keep learning and saying:
+
+“This is what we need.”
+
+Then we start, for example, from the lowest point of stage 2, at the bottom right.
+
+We say:
+
+“Well, this is 5% above the rotor.”
+
+Let's build it up.
+
+Let's build up three teeth, then start some balancing chamber, go around the rotor, then use the best-practice proportion for Seal 1.
+
+I don't know, put it somewhere here.
+
+And “best practice” is again referring to your knowledge base, saying:
+
+“We've already designed 50 seals. It's best to use this proportion.”
+
+Right?
+
+Then we calculate other areas, like:
+
+the area before Seal 1,
+maybe the area of the intermediate chamber,
+all these things.
+
+Once we're done with that — again, this is a design rule or best practice — it gives us a geometry sketch.
+
+Direct design
+
+For that geometry sketch, we go to the direct job.
+
+The direct job says:
+
+1. Calculate pressure distribution
+
+This uses:
+
+gas properties,
+\(C_d\) analysis / discharge coefficient,
+carry-over coefficient,
+pressure loss in the intermediate chamber, because the flow goes up, hits a wall, then comes down, so there is some additional pressure drop,
+area calculations,
+rotation effects,
+other effects,
+whatever is in your papers.
+
+Again, it should all be clickable and refer to the literature source.
+
+So when we decide at some point that a rotation effect should kick in or out depending on some ratios, it should be there for us to click.
+
+2. Force balance
+
+Then, based on these pressure distributions, we do a force balance.
+
+Force balance has this green diamond symbol, meaning decision-making.
+
+So if there is no balancing force, or if the force is too high and it pushes the floating stator offside — for example, the pressure force/resultant force is more than 5% bigger than, I don't know, the force at Seal 1 or the force in the balancing chamber — then we say:
+
+No.
+
+Then it's the LLM's job to look over the results and say:
+
+“Well, it looks like the balancing force is crazy. We need to reduce the balancing chamber, for example.”
+
+Or give some other recommendation.
+
+These recommendations then go back to number 4 in the inverse design, where we adapt the design rules.
+
+So it says:
+
+“Okay, if you need a smaller balancing chamber, let me calculate that and output the new geometry.”
+
+Then you calculate it again.
+
+So you kind of loop them.
+
+You loop them until they converge to a good force balance.
+
+3. Pressure force vs gap
+
+Then you calculate pressure force / pressure distribution against the gap.
+
+So when the seal moves left and right:
+
+the left gap might be 5%;
+the right gap is like 195%;
+and so on.
+
+You calculate those forces.
+
+Then you calculate the total — well, the total gap remains constant, but \(g_1\) and \(g_2\) vary, meaning left and right.
+
+Then you calculate the force.
+
+Again you have a decision:
+
+Do you have enough force for the floating stator to move?
+
+That depends on what limitation or target you wanted.
+
+Maybe your target was that your balancing force should equal a certain value at 90% of the gap, or 80% of the gap.
+
+So here, at 3.1, you have this check:
+
+do I have enough force to the left?
+do I have enough force to the right?
+
+Great.
+
+Manufacturing variation
+
+Then I can start playing with:
+
+“What if my manufacturing gap is actually wider than I intended?”
+
+So I wanted a gap of 0.3 mm, but it ended up being 0.5 mm because of my “great hands”.
+
+Will it still work?
+
+What will the pressure force be?
+
+And so on.
+
+Wear
+
+Then we account, for example, for wear.
+
+If they are rubbing, they might make slots in each other.
+
+What will the pressure distributions be there?
+
+If the tooth is no longer square but rounded, they have all these \(C_d\) coefficients and formulas.
+
+They have it.
+
+We just need MIMI to do it, literally.
+
+Intermediate chamber volume
+
+Then we go to the volume of the intermediate chamber.
+
+Because this chamber can be bigger or smaller, and that gives it some kind of aerodynamic inertia.
+
+If the chamber is very big, it takes a very long time to fill it, and vice versa.
+
+Right?
+
+Full CFD
+
+Then we can do full CFD.
+
+We can do axisymmetric CFD as a direct job.
+
+For example, 4.2 is rotor tilt, which is classic.
+
+So we can start tilting the rotor and see in CFD how it propagates and so on.
+
+In terms of MIMI, it would be a set of tools for:
+
+creating CAD,
+preparing the mesh,
+running CFD in Python-run mode.
+
+For Fluent they have something like PyFluent to prepare the mesh, run the fluid calculation, and see how it works.
+
+Well, this is crazily complicated already.
+
+But up to 3.3, this is what Dash is already doing.
+
+All we want him to do is — well, Jobs 1 to 4 for inverse design, he did them arbitrarily once.
+
+So what we want to do in 4 is use design practice.
+
+Basically, we'll be copying his seal proportions every time for now.
+
+So these jobs were done by him, but they weren't automatically encoded.
+
+They were just arbitrary:
+
+something I said,
+something he said,
+we just picked some numbers.
+
+These jobs he has already coded up.
+
+We just want them to be:
+
+clickable,
+directed to papers,
+referenced to papers,
+and editable as a design system.
+
+So ideally we want to have this in Obsidian with clickable bits.
+
+Like:
+
+“Where are my tools?”
+
+“Okay, I have a \(C_d\)-coefficient tool.”
+
+“Let me look what's going on inside.”
+
+Nice.
+
+Questions?
+
+Yeah, I can speak for hours.

@@ -1,0 +1,187 @@
+.workflow-ai-view {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  overflow: hidden;
+}
+
+.workflow-ai-header {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.workflow-ai-header-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  color: var(--interactive-accent);
+}
+
+.workflow-ai-header h3,
+.workflow-ai-header p {
+  margin: 0;
+}
+
+.workflow-ai-header p,
+.workflow-ai-hint,
+.workflow-ai-model,
+.workflow-ai-key-status,
+.workflow-ai-project-status {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.workflow-ai-project-section,
+.workflow-ai-key-section,
+.workflow-ai-plan-card {
+  padding: 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+}
+
+.workflow-ai-project-section label,
+.workflow-ai-key-section label,
+.workflow-ai-mode-row label {
+  display: block;
+  font-weight: var(--font-semibold);
+  margin-bottom: 6px;
+}
+
+.workflow-ai-key-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.workflow-ai-project-section select {
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.workflow-ai-project-create {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.workflow-ai-project-create input {
+  width: 100%;
+}
+
+.workflow-ai-key-row input,
+.workflow-ai-mode-row select,
+.workflow-ai-composer textarea {
+  width: 100%;
+}
+
+.workflow-ai-key-status.is-saved {
+  color: var(--color-green);
+}
+
+.workflow-ai-mode-row {
+  display: grid;
+  grid-template-columns: auto minmax(110px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.workflow-ai-mode-row label {
+  margin: 0;
+}
+
+.workflow-ai-messages {
+  min-height: 140px;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 4px;
+}
+
+.workflow-ai-message {
+  max-width: 94%;
+  padding: 9px 10px;
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+}
+
+.workflow-ai-message.is-user {
+  align-self: flex-end;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.workflow-ai-message.is-error {
+  border: 1px solid var(--color-red);
+}
+
+.workflow-ai-message-role {
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  margin-bottom: 3px;
+}
+
+.workflow-ai-message-text {
+  white-space: pre-wrap;
+}
+
+.workflow-ai-plan {
+  max-height: 45%;
+  overflow-y: auto;
+}
+
+.workflow-ai-plan-card h4,
+.workflow-ai-plan-card p {
+  margin-top: 0;
+}
+
+.workflow-ai-warning {
+  color: var(--color-orange);
+}
+
+.workflow-ai-operation-list {
+  padding-left: 22px;
+}
+
+.workflow-ai-operation-list li {
+  margin-bottom: 10px;
+}
+
+.workflow-ai-operation-list pre {
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  background: var(--background-primary);
+  padding: 8px;
+  border-radius: var(--radius-s);
+}
+
+.workflow-ai-plan-actions,
+.workflow-ai-composer-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+
+.workflow-ai-composer {
+  flex: 0 0 auto;
+}
+
+.workflow-ai-composer textarea {
+  resize: vertical;
+  min-height: 86px;
+  margin-bottom: 6px;
+}
+
+.workflow-ai-composer-actions .workflow-ai-hint {
+  margin-right: auto;
+}

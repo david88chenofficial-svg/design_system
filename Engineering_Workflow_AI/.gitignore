@@ -1,0 +1,12 @@
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.env
+.env.*
+!.env.example
+key.txt
+**/key.txt
+.obsidian/plugins/engineering-workflow-ai/node_modules/
+.obsidian/plugins/engineering-workflow-ai/*.map
+.obsidian/plugins/engineering-workflow-ai/data.json
+04 Development Log/AI Changes/
+Projects/*/04 Development Log/AI Changes/

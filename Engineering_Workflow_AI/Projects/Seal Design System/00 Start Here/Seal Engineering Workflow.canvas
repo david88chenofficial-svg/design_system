@@ -1,0 +1,30 @@
+{
+	"nodes":[
+		{"id":"question","type":"text","text":"# [[SEAL-ANA-00 - Define Analysis Question|Engineering question]]\nSeal performance and future design\nDomain: TBD","x":0,"y":0,"width":300,"height":130,"color":"3"},
+		{"id":"qualification","type":"text","text":"# [[SEAL-ANA-01 - Baseline Seal Model Qualification|Baseline qualification]]\nBlocked; model and domain TBD","x":420,"y":0,"width":320,"height":130,"color":"3"},
+		{"id":"release","type":"text","text":"# [[Current Approved Analysis Release|Approved analysis]]\nCurrent: none","x":860,"y":0,"width":300,"height":130,"color":"4"},
+		{"id":"designquestion","type":"text","text":"# [[SEAL-DES-00 - Define Design Question|Design question]]\nBlocked","x":1280,"y":0,"width":300,"height":130,"color":"6"},
+		{"id":"requirements","type":"text","text":"# [[SEAL-REQ-001 - Draft Seal Requirements|Requirements]]\nDraft; all values TBD","x":1700,"y":0,"width":300,"height":130,"color":"6"},
+		{"id":"candidate","type":"text","text":"# [[Current Candidate Seal Design|Candidate design]]\nCurrent: none","x":2120,"y":0,"width":300,"height":130,"color":"6"},
+		{"id":"approval","type":"text","text":"# Approval\nBlocked pending qualified analysis, adopted requirements, evidence, and review","x":2540,"y":0,"width":280,"height":130,"color":"6"},
+		{"id":"reason","type":"text","text":"# [[SEAL-WHY-01 - Why the Baseline Seal Model Must Be Qualified|Why qualify?]]\nMechanism, parameters, and applicability TBD","x":420,"y":510,"width":320,"height":130,"color":"1"},
+		{"id":"evidence","type":"text","text":"# [[SEAL-EVID-001 - Baseline Qualification Evidence Plan|Evidence plan]]\nVerification ≠ validation\nNo evidence supplied","x":420,"y":750,"width":320,"height":130,"color":"4"},
+		{"id":"code","type":"text","text":"# [[SEAL-REF-001 - Analysis Implementation Map|Code map]]\nNo implementation identified","x":800,"y":750,"width":320,"height":130,"color":"4"},
+		{"id":"parameter-decision","type":"text","text":"# [[SEAL-DEC-02 - Select Model Parameter Basis|Select parameter basis]]\nOpen; discharge coefficient and kinetic-energy carry-over TBD","x":940,"y":280,"width":340,"height":120,"color":"2"},
+		{"id":"decision","type":"text","text":"# [[SEAL-DEC-01 - Select Baseline Seal Model Basis|Select model basis]]\nOpen","x":380,"y":280,"width":320,"height":120,"color":"2"}
+	],
+	"edges":[
+		{"id":"e01","fromNode":"question","fromSide":"right","toNode":"qualification","toSide":"left"},
+		{"id":"e02","fromNode":"qualification","fromSide":"right","toNode":"release","toSide":"left","label":"qualifies"},
+		{"id":"e03","fromNode":"release","fromSide":"right","toNode":"designquestion","toSide":"left","label":"enables"},
+		{"id":"e04","fromNode":"designquestion","fromSide":"right","toNode":"requirements","toSide":"left"},
+		{"id":"e05","fromNode":"requirements","fromSide":"right","toNode":"candidate","toSide":"left"},
+		{"id":"e06","fromNode":"candidate","fromSide":"right","toNode":"approval","toSide":"left"},
+		{"id":"e07","fromNode":"qualification","fromSide":"bottom","toNode":"decision","toSide":"top","label":"decision"},
+		{"id":"e08","fromNode":"decision","fromSide":"right","toNode":"parameter-decision","toSide":"left","label":"parameter basis"},
+		{"id":"e09","fromNode":"decision","fromSide":"bottom","toNode":"reason","toSide":"top","label":"reason"},
+		{"id":"e10","fromNode":"parameter-decision","fromSide":"bottom","toNode":"reason","toSide":"right","label":"parameter rationale"},
+		{"id":"e11","fromNode":"reason","fromSide":"bottom","toNode":"evidence","toSide":"top","label":"evidence"},
+		{"id":"e12","fromNode":"reason","fromSide":"right","toNode":"code","toSide":"left","label":"code"}
+	]
+}

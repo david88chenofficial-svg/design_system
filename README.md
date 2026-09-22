@@ -11,3 +11,9 @@ On Windows, double-click `LAUNCH_GUI.pyw` in this folder. New users should read
 Start with [[Aero Seal Design - Home]]. The vault records the engineering meaning, provenance, assumptions, validity and implementation of each model. It does not make any model approved for hardware design; approval requires source verification and validation.
 
 Initial content was derived from the whiteboard photograph and the read-only codebase at `D:\AI Predicates\seal_test_2\seal_calculations_2`.
+
+## Engineering Workflow AI
+
+The shareable Obsidian workflow assistant, its complete TypeScript source, compiled plugin, tests, documentation and example projects are in [`Engineering_Workflow_AI`](Engineering_Workflow_AI/README.md).
+
+Open that directory as a separate Obsidian vault. It can build a new engineering reasoning workflow from a short design objective or evolve an existing workflow by routing from the primary Canvas into the relevant stage, decision, reason and evidence branch. AI changes remain review-first and project-scoped.

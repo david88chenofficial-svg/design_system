@@ -1704,9 +1704,12 @@ var WorkflowAIView = class extends import_obsidian3.ItemView {
       const request = codeRoutingRequest(scan);
       const index = await buildProjectIndex(this.app, this.activeProjectPath, request);
       const affectedIds = new Set(scan.changes.flatMap((change) => change.workflowIds.map((id) => id.toLowerCase())));
-      const mappedPaths = index.entries.filter((entry) => entry.id && affectedIds.has(entry.id.toLowerCase())).map((entry) => entry.path).slice(0, 8);
+      const matchingEntries = index.entries.filter((entry) => entry.id && affectedIds.has(entry.id.toLowerCase()));
+      const matchedIds = new Set(matchingEntries.map((entry) => entry.id.toLowerCase()));
+      const mappedPaths = matchingEntries.map((entry) => entry.path).slice(0, 8);
+      const fullyMapped = scan.changes.every((change) => change.workflowIds.length > 0) && Array.from(affectedIds).every((id) => matchedIds.has(id));
       let route;
-      if (mappedPaths.length > 0) {
+      if (fullyMapped && mappedPaths.length > 0) {
         route = {
           focus: "Workflow blocks explicitly linked from code",
           rationale: `Code annotations matched ${mappedPaths.length} existing workflow note(s).`,
@@ -1864,7 +1867,7 @@ var WorkflowAIView = class extends import_obsidian3.ItemView {
   }
 };
 function codeRoutingRequest(report) {
-  const lines = report.changes.slice(0, 20).map((change) => {
+  const lines = report.changes.map((change) => {
     const ids = change.workflowIds.length > 0 ? ` [${change.workflowIds.join(", ")}]` : "";
     return `${change.status} ${change.path} :: ${change.symbol}${ids}`;
   });

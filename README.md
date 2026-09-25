@@ -16,4 +16,4 @@ Initial content was derived from the whiteboard photograph and the read-only cod
 
 The shareable Obsidian workflow assistant, its complete TypeScript source, compiled plugin, tests, documentation and example projects are in [`Engineering_Workflow_AI`](Engineering_Workflow_AI/README.md).
 
-Open that directory as a separate Obsidian vault. It can build a new engineering reasoning workflow from a short design objective or evolve an existing workflow by routing from the primary Canvas into the relevant stage, decision, reason and evidence branch. AI changes remain review-first and project-scoped.
+Open that directory as a separate Obsidian vault. It can build a new engineering reasoning workflow from a short design objective, evolve an existing workflow, and review source-code changes against the relevant stage, decision, reason and evidence branch. AI changes remain review-first and project-scoped; source code is read-only.

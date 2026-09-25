@@ -1,6 +1,7 @@
 import { requestUrl } from "obsidian";
 import {
   CHANGE_PLAN_SCHEMA,
+  CODE_IMPACT_POLICY,
   CONTEXT_ROUTE_SCHEMA,
   CONTEXT_ROUTER_POLICY,
   ENGINEERING_WORKFLOW_POLICY,
@@ -9,6 +10,7 @@ import {
 import { validateChangePlan } from "./safety";
 import type {
   ChatMessage,
+  CodeScanReport,
   ContextRoute,
   PluginSettings,
   ProjectIndex,
@@ -148,6 +150,58 @@ export async function requestChangePlan(
     plan = JSON.parse(outputText) as VaultChangePlan;
   } catch {
     throw new Error("The model returned a response that could not be parsed as a change plan.");
+  }
+  validateChangePlan(plan);
+  return plan;
+}
+
+export async function requestCodeImpactPlan(
+  apiKey: string,
+  settings: PluginSettings,
+  context: VaultContext,
+  codeReport: CodeScanReport
+): Promise<VaultChangePlan> {
+  const input = [
+    "Mode: code impact review. Propose the smallest workflow update needed to preserve implementation traceability.",
+    `SELECTED PROJECT\n${context.projectPath}\nAll file-operation paths must be relative to this project root.`,
+    `FOCUSED WORKFLOW CONTEXT\n${context.serialized}`,
+    codeReport.serialized
+  ].join("\n\n---\n\n");
+
+  const response = await requestUrl({
+    url: "https://api.openai.com/v1/responses",
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: settings.model,
+      store: false,
+      instructions: `${ENGINEERING_WORKFLOW_POLICY}\n\n${CODE_IMPACT_POLICY}`,
+      input,
+      max_output_tokens: 12_000,
+      text: {
+        format: {
+          type: "json_schema",
+          name: "engineering_code_impact_plan",
+          strict: true,
+          schema: CHANGE_PLAN_SCHEMA
+        }
+      }
+    }),
+    throw: false
+  });
+
+  const payload = response.json as ResponsesPayload;
+  if (response.status >= 400) {
+    throw new Error(payload.error?.message ?? `OpenAI code-review request failed with status ${response.status}.`);
+  }
+  let plan: VaultChangePlan;
+  try {
+    plan = JSON.parse(extractResponseText(payload)) as VaultChangePlan;
+  } catch {
+    throw new Error("The model returned a response that could not be parsed as a code-impact plan.");
   }
   validateChangePlan(plan);
   return plan;

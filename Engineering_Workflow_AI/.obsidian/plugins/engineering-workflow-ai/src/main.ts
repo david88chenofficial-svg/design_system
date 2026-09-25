@@ -17,6 +17,8 @@ const DEFAULT_SETTINGS: PluginSettings = {
   maxFiles: 12,
   maxContextChars: 40_000,
   contextStrategyVersion: 1,
+  codeRootsByProject: {},
+  codeBaselines: {},
   openOnStartup: true,
   activeProjectPath: ""
 };
@@ -76,6 +78,8 @@ export default class EngineeringWorkflowAIPlugin extends Plugin {
   async loadSettings(): Promise<void> {
     const loaded = await this.loadData() as Partial<PluginSettings> | null;
     this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded ?? {});
+    if (!this.settings.codeRootsByProject || typeof this.settings.codeRootsByProject !== "object") this.settings.codeRootsByProject = {};
+    if (!this.settings.codeBaselines || typeof this.settings.codeBaselines !== "object") this.settings.codeBaselines = {};
     if (loaded?.contextStrategyVersion !== DEFAULT_SETTINGS.contextStrategyVersion) {
       this.settings.maxFiles = DEFAULT_SETTINGS.maxFiles;
       this.settings.maxContextChars = DEFAULT_SETTINGS.maxContextChars;
@@ -139,6 +143,23 @@ class EngineeringWorkflowAISettingTab extends PluginSettingTab {
             this.plugin.settings.maxContextChars = parsed;
             await this.plugin.saveSettings();
           }
+        }));
+    new Setting(this.containerEl)
+      .setName("External code roots for selected project")
+      .setDesc(`Optional absolute or vault-relative paths for ${this.plugin.settings.activeProjectPath || "the selected project"}, one per line. Project code/ and src/ folders are detected automatically. Code is read-only.`)
+      .addTextArea((text) => text
+        .setPlaceholder("D:\\Engineering\\my-code")
+        .setValue((this.plugin.settings.codeRootsByProject[this.plugin.settings.activeProjectPath] ?? []).join("\n"))
+        .onChange(async (value) => {
+          if (!this.plugin.settings.activeProjectPath) return;
+          this.plugin.settings.codeRootsByProject = {
+            ...this.plugin.settings.codeRootsByProject,
+            [this.plugin.settings.activeProjectPath]: value
+            .split(/\r?\n/)
+            .map((root) => root.trim())
+            .filter(Boolean)
+          };
+          await this.plugin.saveSettings();
         }));
   }
 }

@@ -37,11 +37,33 @@
 
 .workflow-ai-project-section,
 .workflow-ai-key-section,
+.workflow-ai-code-section,
 .workflow-ai-plan-card {
   padding: 10px;
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-m);
   background: var(--background-secondary);
+}
+
+.workflow-ai-code-section {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.workflow-ai-code-section strong,
+.workflow-ai-code-section small {
+  display: block;
+}
+
+.workflow-ai-code-list li {
+  margin-bottom: 7px;
+}
+
+.workflow-ai-code-list small,
+.workflow-ai-code-list a {
+  margin-left: 8px;
 }
 
 .workflow-ai-project-section label,

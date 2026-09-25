@@ -7,8 +7,57 @@ export interface PluginSettings {
   maxFiles: number;
   maxContextChars: number;
   contextStrategyVersion: number;
+  codeRootsByProject: Record<string, string[]>;
+  codeBaselines: Record<string, CodeBaseline>;
   openOnStartup: boolean;
   activeProjectPath: string;
+}
+
+export type CodeChangeStatus = "added" | "modified" | "removed";
+
+export interface CodeSymbolSnapshot {
+  key: string;
+  name: string;
+  kind: string;
+  lineStart: number;
+  lineEnd: number;
+  hash: string;
+  workflowIds: string[];
+}
+
+export interface CodeFileSnapshot {
+  root: string;
+  path: string;
+  hash: string;
+  symbols: CodeSymbolSnapshot[];
+}
+
+export type CodeBaseline = Record<string, CodeFileSnapshot>;
+
+export interface CodeChange {
+  status: CodeChangeStatus;
+  root: string;
+  path: string;
+  absolutePath: string;
+  symbol: string;
+  kind: string;
+  lineStart: number;
+  lineEnd: number;
+  workflowIds: string[];
+  excerpt: string;
+  localUrl: string;
+  githubUrl: string;
+}
+
+export interface CodeScanReport {
+  roots: string[];
+  filesScanned: number;
+  annotatedSymbols: number;
+  changes: CodeChange[];
+  omittedChanges: number;
+  snapshot: CodeBaseline;
+  serialized: string;
+  truncated: boolean;
 }
 
 export interface ContextFile {

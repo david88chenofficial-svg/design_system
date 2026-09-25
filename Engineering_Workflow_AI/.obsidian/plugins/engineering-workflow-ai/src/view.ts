@@ -1,9 +1,18 @@
-import { ItemView, Notice, WorkspaceLeaf, setIcon } from "obsidian";
-import { requestChangePlan, requestContextRoute } from "./openai";
+import { FileSystemAdapter, ItemView, Notice, WorkspaceLeaf, setIcon } from "obsidian";
+import { resolveCodeRoots, scanCodeChanges } from "./code";
+import { requestChangePlan, requestCodeImpactPlan, requestContextRoute } from "./openai";
 import { createFallbackRoute } from "./retrieval";
 import { applyChangePlan, buildProjectIndex, buildVaultContext, createProject, listProjectPaths } from "./vault";
 import type EngineeringWorkflowAIPlugin from "./main";
-import type { ChatMessage, ContextRoute, VaultChangePlan, VaultContext, WorkflowMode } from "./types";
+import type {
+  ChatMessage,
+  CodeBaseline,
+  CodeScanReport,
+  ContextRoute,
+  VaultChangePlan,
+  VaultContext,
+  WorkflowMode
+} from "./types";
 
 export const VIEW_TYPE_WORKFLOW_AI = "engineering-workflow-ai-chat";
 
@@ -15,8 +24,10 @@ export class WorkflowAIView extends ItemView {
   private planContainer!: HTMLElement;
   private promptInput!: HTMLTextAreaElement;
   private sendButton!: HTMLButtonElement;
+  private codeReviewButton!: HTMLButtonElement;
   private mode: WorkflowMode = "auto";
   private activeProjectPath = "";
+  private pendingCodeBaseline: CodeBaseline | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: EngineeringWorkflowAIPlugin) {
     super(leaf);
@@ -58,6 +69,7 @@ export class WorkflowAIView extends ItemView {
     await this.renderProjectSection(root);
     this.renderKeySection(root);
     this.renderModeSection(root);
+    this.renderCodeSection(root);
 
     this.messageList = root.createDiv({ cls: "workflow-ai-messages" });
     const projectName = this.activeProjectPath.split("/").pop();
@@ -149,6 +161,7 @@ export class WorkflowAIView extends ItemView {
     this.activeProjectPath = path;
     this.history = [];
     this.pendingPlan = null;
+    this.pendingCodeBaseline = null;
     await this.render();
     new Notice(`Active project: ${path.split("/").pop() ?? path}`);
   }
@@ -168,6 +181,7 @@ export class WorkflowAIView extends ItemView {
       this.activeProjectPath = path;
       this.history = [];
       this.pendingPlan = null;
+      this.pendingCodeBaseline = null;
       await this.render();
       new Notice(`Project created: ${name}`);
     } catch (error) {
@@ -233,6 +247,21 @@ export class WorkflowAIView extends ItemView {
     row.createEl("span", { text: `Model: ${this.plugin.settings.model}`, cls: "workflow-ai-model" });
   }
 
+  private renderCodeSection(root: HTMLElement): void {
+    const configuredRoots = this.plugin.settings.codeRootsByProject[this.activeProjectPath] ?? [];
+    const section = root.createDiv({ cls: "workflow-ai-code-section" });
+    const text = section.createDiv();
+    text.createEl("strong", { text: "Code traceability" });
+    text.createEl("small", {
+      text: configuredRoots.length > 0
+        ? `${configuredRoots.length} external code root(s), plus project code/src auto-detection.`
+        : "Project code/ and src/ folders are detected automatically. Add external roots in plugin settings.",
+      cls: "workflow-ai-project-status"
+    });
+    this.codeReviewButton = section.createEl("button", { text: "Review code changes" });
+    this.codeReviewButton.addEventListener("click", () => void this.reviewCodeChanges());
+  }
+
   private async send(): Promise<void> {
     const request = this.promptInput.value.trim();
     if (!request) return;
@@ -246,6 +275,7 @@ export class WorkflowAIView extends ItemView {
       return;
     }
     const priorHistory = [...this.history];
+    this.pendingCodeBaseline = null;
     this.appendMessage("user", request);
     this.history.push({ role: "user", text: request });
     this.promptInput.value = "";
@@ -310,7 +340,95 @@ export class WorkflowAIView extends ItemView {
     }
   }
 
-  private renderPlan(plan: VaultChangePlan, context: VaultContext): void {
+  private async reviewCodeChanges(): Promise<void> {
+    if (!this.activeProjectPath) {
+      new Notice("Create or select a project first.");
+      return;
+    }
+    const apiKey = this.plugin.getApiKey();
+    if (!apiKey) {
+      new Notice("Save an OpenAI API key first.");
+      return;
+    }
+    const adapter = this.app.vault.adapter;
+    if (!(adapter instanceof FileSystemAdapter)) {
+      new Notice("Code traceability requires an Obsidian desktop file-system vault.");
+      return;
+    }
+    this.setBusy(true, "Scanning code locally and locating affected workflow blocks…");
+    this.planContainer.empty();
+    this.pendingPlan = null;
+    this.pendingCodeBaseline = null;
+    try {
+      const roots = await resolveCodeRoots(
+        adapter.getBasePath(),
+        this.activeProjectPath,
+        this.plugin.settings.codeRootsByProject[this.activeProjectPath] ?? []
+      );
+      if (roots.length === 0) {
+        throw new Error("No code root was found. Add an external code root in plugin settings, or create a code/ or src/ folder inside the selected project.");
+      }
+      const previous = this.plugin.settings.codeBaselines[this.activeProjectPath] ?? {};
+      const scan = await scanCodeChanges(roots, previous);
+      if (scan.changes.length === 0) {
+        this.appendMessage("assistant", `Code scan complete: ${scan.filesScanned} file(s), with no changes since the saved baseline.`);
+        return;
+      }
+      if (scan.truncated || scan.omittedChanges > 0) {
+        throw new Error(
+          `The scan exceeded the safe review limit and omitted ${scan.omittedChanges} change(s). Narrow this project's code roots before reviewing; the saved baseline was not changed.`
+        );
+      }
+
+      const request = codeRoutingRequest(scan);
+      const index = await buildProjectIndex(this.app, this.activeProjectPath, request);
+      const affectedIds = new Set(scan.changes.flatMap((change) => change.workflowIds.map((id) => id.toLowerCase())));
+      const mappedPaths = index.entries
+        .filter((entry) => entry.id && affectedIds.has(entry.id.toLowerCase()))
+        .map((entry) => entry.path)
+        .slice(0, 8);
+      let route: ContextRoute;
+      if (mappedPaths.length > 0) {
+        route = {
+          focus: "Workflow blocks explicitly linked from code",
+          rationale: `Code annotations matched ${mappedPaths.length} existing workflow note(s).`,
+          selected_paths: mappedPaths,
+          needs_broader_context: false
+        };
+      } else {
+        try {
+          route = await requestContextRoute(apiKey, this.plugin.settings, "evolve", request, index, []);
+        } catch {
+          route = createFallbackRoute(index, request);
+        }
+      }
+      const context = await buildVaultContext(
+        this.app,
+        index,
+        route,
+        request,
+        this.plugin.settings.maxFiles,
+        this.plugin.settings.maxContextChars
+      );
+      this.appendMessage(
+        "assistant",
+        `Code scan: ${scan.filesScanned} file(s), ${scan.changes.length} change(s), ${scan.annotatedSymbols} workflow-linked symbol(s). Reviewing ${context.selectedPaths.length} workflow file(s).`
+      );
+      const plan = await requestCodeImpactPlan(apiKey, this.plugin.settings, context, scan);
+      this.pendingPlan = plan;
+      this.pendingCodeBaseline = scan.snapshot;
+      this.appendMessage("assistant", plan.assistant_message);
+      this.renderPlan(plan, context, scan);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.appendMessage("assistant", `I could not review the code changes: ${message}`, true);
+      new Notice(`Code review failed: ${message}`);
+    } finally {
+      this.setBusy(false);
+    }
+  }
+
+  private renderPlan(plan: VaultChangePlan, context: VaultContext, codeReport?: CodeScanReport): void {
     this.planContainer.empty();
     const card = this.planContainer.createDiv({ cls: "workflow-ai-plan-card" });
     card.createEl("h4", { text: "Proposed local changes" });
@@ -321,12 +439,26 @@ export class WorkflowAIView extends ItemView {
     contextDetails.createEl("p", { text: context.selectionSummary });
     const contextList = contextDetails.createEl("ul");
     for (const path of context.selectedPaths) contextList.createEl("li", { text: path });
+    if (codeReport) {
+      const codeDetails = card.createEl("details");
+      codeDetails.createEl("summary", { text: `Code changes reviewed: ${codeReport.changes.length}` });
+      const codeList = codeDetails.createEl("ul", { cls: "workflow-ai-code-list" });
+      for (const change of codeReport.changes) {
+        const item = codeList.createEl("li");
+        item.createSpan({ text: `${change.status.toUpperCase()}: ${change.path} :: ${change.symbol}` });
+        if (change.workflowIds.length > 0) item.createEl("small", { text: ` → ${change.workflowIds.join(", ")}` });
+        if (change.localUrl) item.createEl("a", { text: "Open code", href: change.localUrl });
+        if (change.githubUrl) item.createEl("a", { text: "GitHub", href: change.githubUrl });
+      }
+      if (codeReport.truncated) card.createEl("p", { text: "The code-change report was capped; review the omitted changes in a later scan.", cls: "workflow-ai-warning" });
+    }
     if (context.truncated) card.createEl("p", { text: "One or more selected files were truncated to the configured context limit.", cls: "workflow-ai-warning" });
     if (context.indexTruncated) card.createEl("p", { text: "The compact project map was truncated; the most relevant metadata was retained.", cls: "workflow-ai-warning" });
     for (const warning of plan.warnings) card.createEl("p", { text: warning, cls: "workflow-ai-warning" });
 
     if (plan.operations.length === 0) {
       card.createEl("p", { text: "No file changes were proposed." });
+      if (this.pendingCodeBaseline) this.renderBaselineActions(card);
       return;
     }
     const list = card.createEl("ol", { cls: "workflow-ai-operation-list" });
@@ -342,6 +474,7 @@ export class WorkflowAIView extends ItemView {
     const discard = buttons.createEl("button", { text: "Discard" });
     discard.addEventListener("click", () => {
       this.pendingPlan = null;
+      this.pendingCodeBaseline = null;
       this.planContainer.empty();
     });
     const apply = buttons.createEl("button", { text: "Apply approved changes", cls: "mod-cta" });
@@ -354,6 +487,7 @@ export class WorkflowAIView extends ItemView {
     button.setText("Applying…");
     try {
       const report = await applyChangePlan(this.app, this.activeProjectPath, this.pendingPlan);
+      await this.savePendingCodeBaseline();
       this.pendingPlan = null;
       this.planContainer.empty();
       const issues = report.validation.brokenLinks.length + report.validation.ambiguousLinks.length + report.validation.duplicateIds.length + report.validation.invalidCanvases.length;
@@ -372,6 +506,37 @@ export class WorkflowAIView extends ItemView {
     }
   }
 
+  private renderBaselineActions(card: HTMLElement): void {
+    const buttons = card.createDiv({ cls: "workflow-ai-plan-actions" });
+    const discard = buttons.createEl("button", { text: "Discard" });
+    discard.addEventListener("click", () => {
+      this.pendingPlan = null;
+      this.pendingCodeBaseline = null;
+      this.planContainer.empty();
+    });
+    const save = buttons.createEl("button", { text: "Accept current code baseline", cls: "mod-cta" });
+    save.addEventListener("click", () => void this.acceptCodeBaseline());
+  }
+
+  private async acceptCodeBaseline(): Promise<void> {
+    if (!this.pendingCodeBaseline) return;
+    await this.savePendingCodeBaseline();
+    this.pendingPlan = null;
+    this.planContainer.empty();
+    this.appendMessage("assistant", "Saved the current code state as the reviewed baseline. Future scans will report changes from this point.");
+    new Notice("Code review baseline saved.");
+  }
+
+  private async savePendingCodeBaseline(): Promise<void> {
+    if (!this.pendingCodeBaseline) return;
+    this.plugin.settings.codeBaselines = {
+      ...this.plugin.settings.codeBaselines,
+      [this.activeProjectPath]: this.pendingCodeBaseline
+    };
+    await this.plugin.saveSettings();
+    this.pendingCodeBaseline = null;
+  }
+
   private appendMessage(role: "user" | "assistant", text: string, error = false): void {
     if (!this.messageList) return;
     const message = this.messageList.createDiv({ cls: `workflow-ai-message is-${role}${error ? " is-error" : ""}` });
@@ -382,8 +547,17 @@ export class WorkflowAIView extends ItemView {
 
   private setBusy(busy: boolean, label?: string): void {
     this.sendButton.disabled = busy;
+    if (this.codeReviewButton) this.codeReviewButton.disabled = busy;
     this.promptInput.disabled = busy;
     this.sendButton.setText(busy ? "Working…" : "Send");
     if (busy && label) this.appendMessage("assistant", label);
   }
+}
+
+function codeRoutingRequest(report: CodeScanReport): string {
+  const lines = report.changes.slice(0, 20).map((change) => {
+    const ids = change.workflowIds.length > 0 ? ` [${change.workflowIds.join(", ")}]` : "";
+    return `${change.status} ${change.path} :: ${change.symbol}${ids}`;
+  });
+  return `Review these implementation changes and locate the affected workflow branch:\n${lines.join("\n")}`;
 }

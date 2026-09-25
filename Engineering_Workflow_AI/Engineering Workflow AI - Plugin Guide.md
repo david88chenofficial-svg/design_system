@@ -27,26 +27,43 @@ For a blank project, the request can be intentionally short. For example:
 
 The user states the outcome; the assistant derives the analysis, qualification and design-development workflow. Missing engineering facts remain open rather than being invented.
 
-## Review code changes
+## Build and update exact code links
 
 Code inside the selected project's `code/` or `src/` folder is detected automatically. For code elsewhere:
 
 1. Select the project in the assistant.
 2. Open **Settings → Engineering Workflow AI**.
 3. Enter absolute or vault-relative paths under **External code roots for selected project**, one per line.
-4. Return to the assistant and select **Review code changes**.
+4. Return to the assistant and select **Build/update code links**.
 
 Use stable workflow IDs to make a deterministic connection from a function or class to an existing note:
 
 ```python
-# workflow: SEAL-ANA-01, SEAL-DEC-01
+# workflow: SEAL-DEC-01
+# role: candidate-model
+# model: Kearton
 def calculate_leakage(...):
     ...
 ```
 
-The scanner reads supported source files locally, calculates function/class hashes, and compares them with the last accepted baseline. On first use it sends one compact outline per source file; subsequent reviews send only capped changed-symbol excerpts and the relevant workflow branch. The preview shows **Open code** links for VS Code and GitHub permalinks when the source matches a committed revision.
+For a single equation or arbitrary line range, use an explicit region:
 
-Applying the proposed note changes also saves the reviewed code baseline. If no note changes are required, select **Accept current code baseline**. Code is never edited. Changes to assumptions, equations, inputs, outputs or algorithms are flagged for engineering review; code and tests alone never establish verification, validation or approval.
+```python
+# workflow-region: SEAL-DEC-01
+# role: implementation
+# model: Kearton
+# equation: mass-flow relation
+w = C1 * sqrt(...)
+# workflow-region-end
+```
+
+The scanner builds a bounded catalog of relevant classes, functions, methods and annotated regions. The LLM classifies each artifact against existing workflow IDs, but it does not write URLs. The plugin validates the IDs, generates exact VS Code/GitHub line links, and creates a managed **Code traceability** table inside every mapped workflow note. Therefore a Canvas decision block opens its note, where each candidate model or equation links directly to its implementation.
+
+The generated section is delimited by `workflow-ai-code-trace` comments. Rebuild it through the plugin instead of editing it manually; human-authored content elsewhere in the note is preserved.
+
+See [[Code Traceability Contract]] for the complete annotation grammar, role meanings and LLM safety boundary.
+
+Applying the proposed note changes also saves the reviewed trace state. If no note changes are required, select **Accept current trace state**. Later builds reuse unchanged mappings and classify only changed artifacts unless the workflow graph changes. Code is never edited. A `candidate-model` mapping does not select that model; a `verification` or `validation` mapping identifies implementation only and does not establish a successful result.
 
 ## Safety boundary
 

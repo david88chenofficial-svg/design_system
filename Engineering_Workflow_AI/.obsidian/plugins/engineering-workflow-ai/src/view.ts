@@ -1,20 +1,25 @@
 import { FileSystemAdapter, ItemView, Notice, WorkspaceLeaf, setIcon } from "obsidian";
-import { resolveCodeRoots, scanCodeChanges } from "./code";
-import { requestChangePlan, requestCodeImpactPlan, requestContextRoute } from "./openai";
+import { resolveCodeRoots, scanCodeInventory, serializeCodeTraceCatalog } from "./code";
+import { requestChangePlan, requestCodeTraceMappings, requestContextRoute } from "./openai";
 import { createFallbackRoute } from "./retrieval";
+import { buildCodeTracePlan } from "./trace";
 import { applyChangePlan, buildProjectIndex, buildVaultContext, createProject, listProjectPaths } from "./vault";
 import type EngineeringWorkflowAIPlugin from "./main";
 import type {
   ChatMessage,
   CodeBaseline,
-  CodeScanReport,
+  CodeTraceCatalog,
+  CodeTraceResponse,
+  CodeTraceState,
   ContextRoute,
+  ProjectIndex,
   VaultChangePlan,
   VaultContext,
   WorkflowMode
 } from "./types";
 
 export const VIEW_TYPE_WORKFLOW_AI = "engineering-workflow-ai-chat";
+const CODE_TRACE_SCHEMA_VERSION = 1;
 
 export class WorkflowAIView extends ItemView {
   private plugin: EngineeringWorkflowAIPlugin;
@@ -28,6 +33,7 @@ export class WorkflowAIView extends ItemView {
   private mode: WorkflowMode = "auto";
   private activeProjectPath = "";
   private pendingCodeBaseline: CodeBaseline | null = null;
+  private pendingCodeTraceState: CodeTraceState | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: EngineeringWorkflowAIPlugin) {
     super(leaf);
@@ -162,6 +168,7 @@ export class WorkflowAIView extends ItemView {
     this.history = [];
     this.pendingPlan = null;
     this.pendingCodeBaseline = null;
+    this.pendingCodeTraceState = null;
     await this.render();
     new Notice(`Active project: ${path.split("/").pop() ?? path}`);
   }
@@ -182,6 +189,7 @@ export class WorkflowAIView extends ItemView {
       this.history = [];
       this.pendingPlan = null;
       this.pendingCodeBaseline = null;
+      this.pendingCodeTraceState = null;
       await this.render();
       new Notice(`Project created: ${name}`);
     } catch (error) {
@@ -254,11 +262,11 @@ export class WorkflowAIView extends ItemView {
     text.createEl("strong", { text: "Code traceability" });
     text.createEl("small", {
       text: configuredRoots.length > 0
-        ? `${configuredRoots.length} external code root(s), plus project code/src auto-detection.`
+        ? `${configuredRoots.length} external code root(s). Build exact symbol/region links into workflow records.`
         : "Project code/ and src/ folders are detected automatically. Add external roots in plugin settings.",
       cls: "workflow-ai-project-status"
     });
-    this.codeReviewButton = section.createEl("button", { text: "Review code changes" });
+    this.codeReviewButton = section.createEl("button", { text: "Build/update code links" });
     this.codeReviewButton.addEventListener("click", () => void this.reviewCodeChanges());
   }
 
@@ -276,6 +284,7 @@ export class WorkflowAIView extends ItemView {
     }
     const priorHistory = [...this.history];
     this.pendingCodeBaseline = null;
+    this.pendingCodeTraceState = null;
     this.appendMessage("user", request);
     this.history.push({ role: "user", text: request });
     this.promptInput.value = "";
@@ -355,10 +364,11 @@ export class WorkflowAIView extends ItemView {
       new Notice("Code traceability requires an Obsidian desktop file-system vault.");
       return;
     }
-    this.setBusy(true, "Scanning code locally and locating affected workflow blocks…");
+    this.setBusy(true, "Scanning exact code artifacts and mapping them to workflow records…");
     this.planContainer.empty();
     this.pendingPlan = null;
     this.pendingCodeBaseline = null;
+    this.pendingCodeTraceState = null;
     try {
       const roots = await resolveCodeRoots(
         adapter.getBasePath(),
@@ -368,93 +378,124 @@ export class WorkflowAIView extends ItemView {
       if (roots.length === 0) {
         throw new Error("No code root was found. Add an external code root in plugin settings, or create a code/ or src/ folder inside the selected project.");
       }
-      const previous = this.plugin.settings.codeBaselines[this.activeProjectPath] ?? {};
-      const scan = await scanCodeChanges(roots, previous);
-      if (scan.changes.length === 0) {
-        this.appendMessage("assistant", `Code scan complete: ${scan.filesScanned} file(s), with no changes since the saved baseline.`);
-        return;
-      }
-      if (scan.truncated || scan.omittedChanges > 0) {
+      const catalog = await scanCodeInventory(roots);
+      if (catalog.truncated || catalog.omittedArtifacts > 0) {
         throw new Error(
-          `The scan exceeded the safe review limit and omitted ${scan.omittedChanges} change(s). Narrow this project's code roots before reviewing; the saved baseline was not changed.`
+          `The trace catalog exceeded the safe review limit and omitted ${catalog.omittedArtifacts} artifact(s). Narrow this project's code roots or add explicit workflow annotations; no baseline was changed.`
         );
       }
-
-      const request = codeRoutingRequest(scan);
-      const index = await buildProjectIndex(this.app, this.activeProjectPath, request);
-      const affectedIds = new Set(scan.changes.flatMap((change) => change.workflowIds.map((id) => id.toLowerCase())));
-      const matchingEntries = index.entries
-        .filter((entry) => entry.id && affectedIds.has(entry.id.toLowerCase()));
-      const matchedIds = new Set(matchingEntries.map((entry) => entry.id!.toLowerCase()));
-      const mappedPaths = matchingEntries
-        .map((entry) => entry.path)
-        .slice(0, 8);
-      const fullyMapped = scan.changes.every((change) => change.workflowIds.length > 0)
-        && Array.from(affectedIds).every((id) => matchedIds.has(id));
-      let route: ContextRoute;
-      if (fullyMapped && mappedPaths.length > 0) {
-        route = {
-          focus: "Workflow blocks explicitly linked from code",
-          rationale: `Code annotations matched ${mappedPaths.length} existing workflow note(s).`,
-          selected_paths: mappedPaths,
-          needs_broader_context: false
-        };
-      } else {
-        try {
-          route = await requestContextRoute(apiKey, this.plugin.settings, "evolve", request, index, []);
-        } catch {
-          route = createFallbackRoute(index, request);
-        }
-      }
-      const context = await buildVaultContext(
-        this.app,
-        index,
-        route,
-        request,
-        this.plugin.settings.maxFiles,
-        this.plugin.settings.maxContextChars
-      );
+      const index = await buildProjectIndex(this.app, this.activeProjectPath, "Map exact code artifacts to their engineering workflow records");
       this.appendMessage(
         "assistant",
-        `Code scan: ${scan.filesScanned} file(s), ${scan.changes.length} change(s), ${scan.annotatedSymbols} workflow-linked symbol(s). Reviewing ${context.selectedPaths.length} workflow file(s).`
+        `Code scan: ${catalog.filesScanned} file(s), ${catalog.artifacts.length} exact artifact(s), ${catalog.annotatedArtifacts} explicitly annotated artifact(s). Classifying relationships without changing engineering status.`
       );
-      const plan = await requestCodeImpactPlan(apiKey, this.plugin.settings, context, scan);
-      this.pendingPlan = plan;
-      this.pendingCodeBaseline = scan.snapshot;
-      this.appendMessage("assistant", plan.assistant_message);
-      this.renderPlan(plan, context, scan);
+      const signature = codeWorkflowSignature(index);
+      const prior = this.plugin.settings.codeTraceStateByProject[this.activeProjectPath];
+      const workflowIds = new Set(index.entries.filter((entry) => entry.id).map((entry) => entry.id.toLowerCase()));
+      const artifactIds = new Set(catalog.artifacts.map((artifact) => artifact.artifactId));
+      const canReuse = prior?.schemaVersion === CODE_TRACE_SCHEMA_VERSION
+        && prior.workflowSignature === signature
+        && typeof prior.artifactHashes === "object"
+        && Array.isArray(prior.mappings);
+      const reusableMappings = canReuse
+        ? prior.mappings.filter((mapping) => artifactIds.has(mapping.artifact_id) && workflowIds.has(mapping.workflow_id.toLowerCase()))
+        : [];
+      const artifactsToClassify = canReuse
+        ? catalog.artifacts.filter((artifact) => prior.artifactHashes[artifact.artifactId] !== artifact.hash)
+        : catalog.artifacts;
+      let classified: CodeTraceResponse;
+      if (artifactsToClassify.length > 0) {
+        const classificationCatalog: CodeTraceCatalog = {
+          ...catalog,
+          artifacts: artifactsToClassify,
+          annotatedArtifacts: artifactsToClassify.filter((artifact) => artifact.workflowIds.length > 0).length,
+          omittedArtifacts: 0,
+          serialized: serializeCodeTraceCatalog(artifactsToClassify, catalog.filesScanned),
+          truncated: false
+        };
+        classified = await requestCodeTraceMappings(apiKey, this.plugin.settings, index, classificationCatalog);
+      } else {
+        classified = {
+          summary: "No artifact semantics changed; reused the previously reviewed mappings and refreshed exact line/revision links locally.",
+          mappings: [],
+          warnings: []
+        };
+      }
+      const reclassifiedIds = new Set(artifactsToClassify.map((artifact) => artifact.artifactId));
+      const mappings: CodeTraceResponse = {
+        summary: classified.summary,
+        mappings: [
+          ...reusableMappings.filter((mapping) => !reclassifiedIds.has(mapping.artifact_id)),
+          ...classified.mappings
+        ],
+        warnings: classified.warnings
+      };
+      const result = await buildCodeTracePlan(this.app, this.activeProjectPath, index, catalog, mappings);
+      const targetIds = new Set(mappings.mappings.map((mapping) => mapping.workflow_id.toLowerCase()));
+      const targetPaths = index.entries
+        .filter((entry) => entry.id && targetIds.has(entry.id.toLowerCase()))
+        .map((entry) => entry.path);
+      const context: VaultContext = {
+        projectPath: this.activeProjectPath,
+        files: [],
+        serialized: "",
+        truncated: false,
+        indexTruncated: index.truncated,
+        selectedPaths: Array.from(new Set(targetPaths)),
+        selectionSummary: `Exact trace build: ${result.mappingCount} artifact mapping(s) across ${result.targetCount} workflow record(s).`
+      };
+      this.pendingPlan = result.plan;
+      this.pendingCodeBaseline = catalog.snapshot;
+      this.pendingCodeTraceState = {
+        schemaVersion: CODE_TRACE_SCHEMA_VERSION,
+        workflowSignature: signature,
+        artifactHashes: Object.fromEntries(catalog.artifacts.map((artifact) => [artifact.artifactId, artifact.hash])),
+        mappings: mappings.mappings
+      };
+      this.appendMessage("assistant", result.plan.assistant_message);
+      this.renderPlan(result.plan, context, { catalog, mappings });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.appendMessage("assistant", `I could not review the code changes: ${message}`, true);
-      new Notice(`Code review failed: ${message}`);
+      this.appendMessage("assistant", `I could not build the code links: ${message}`, true);
+      new Notice(`Code-link build failed: ${message}`);
     } finally {
       this.setBusy(false);
     }
   }
 
-  private renderPlan(plan: VaultChangePlan, context: VaultContext, codeReport?: CodeScanReport): void {
+  private renderPlan(
+    plan: VaultChangePlan,
+    context: VaultContext,
+    traceReview?: { catalog: CodeTraceCatalog; mappings: CodeTraceResponse }
+  ): void {
     this.planContainer.empty();
     const card = this.planContainer.createDiv({ cls: "workflow-ai-plan-card" });
     card.createEl("h4", { text: "Proposed local changes" });
     card.createEl("small", { text: `Project: ${this.activeProjectPath}`, cls: "workflow-ai-project-status" });
     card.createEl("p", { text: plan.summary });
     const contextDetails = card.createEl("details");
-    contextDetails.createEl("summary", { text: `Context used: ${context.files.length} file(s)` });
+    contextDetails.createEl("summary", {
+      text: traceReview
+        ? `Workflow records targeted: ${context.selectedPaths.length}`
+        : `Context used: ${context.files.length} file(s)`
+    });
     contextDetails.createEl("p", { text: context.selectionSummary });
     const contextList = contextDetails.createEl("ul");
     for (const path of context.selectedPaths) contextList.createEl("li", { text: path });
-    if (codeReport) {
+    if (traceReview) {
       const codeDetails = card.createEl("details");
-      codeDetails.createEl("summary", { text: `Code changes reviewed: ${codeReport.changes.length}` });
+      codeDetails.createEl("summary", { text: `Exact code mappings: ${traceReview.mappings.mappings.length}` });
       const codeList = codeDetails.createEl("ul", { cls: "workflow-ai-code-list" });
-      for (const change of codeReport.changes) {
+      const artifactById = new Map(traceReview.catalog.artifacts.map((artifact) => [artifact.artifactId, artifact]));
+      for (const mapping of traceReview.mappings.mappings) {
+        const artifact = artifactById.get(mapping.artifact_id);
+        if (!artifact) continue;
         const item = codeList.createEl("li");
-        item.createSpan({ text: `${change.status.toUpperCase()}: ${change.path} :: ${change.symbol}` });
-        if (change.workflowIds.length > 0) item.createEl("small", { text: ` → ${change.workflowIds.join(", ")}` });
-        if (change.localUrl) item.createEl("a", { text: "Open code", href: change.localUrl });
-        if (change.githubUrl) item.createEl("a", { text: "GitHub", href: change.githubUrl });
+        item.createSpan({ text: `${mapping.label}: ${artifact.path} :: ${artifact.symbol} → ${mapping.workflow_id}` });
+        item.createEl("small", { text: ` ${mapping.relationship}; lines ${artifact.lineStart}-${artifact.lineEnd}` });
+        item.createEl("a", { text: "Open exact code", href: artifact.localUrl });
+        if (artifact.githubUrl) item.createEl("a", { text: "GitHub", href: artifact.githubUrl });
       }
-      if (codeReport.truncated) card.createEl("p", { text: "The code-change report was capped; review the omitted changes in a later scan.", cls: "workflow-ai-warning" });
     }
     if (context.truncated) card.createEl("p", { text: "One or more selected files were truncated to the configured context limit.", cls: "workflow-ai-warning" });
     if (context.indexTruncated) card.createEl("p", { text: "The compact project map was truncated; the most relevant metadata was retained.", cls: "workflow-ai-warning" });
@@ -479,6 +520,7 @@ export class WorkflowAIView extends ItemView {
     discard.addEventListener("click", () => {
       this.pendingPlan = null;
       this.pendingCodeBaseline = null;
+      this.pendingCodeTraceState = null;
       this.planContainer.empty();
     });
     const apply = buttons.createEl("button", { text: "Apply approved changes", cls: "mod-cta" });
@@ -516,9 +558,10 @@ export class WorkflowAIView extends ItemView {
     discard.addEventListener("click", () => {
       this.pendingPlan = null;
       this.pendingCodeBaseline = null;
+      this.pendingCodeTraceState = null;
       this.planContainer.empty();
     });
-    const save = buttons.createEl("button", { text: "Accept current code baseline", cls: "mod-cta" });
+    const save = buttons.createEl("button", { text: "Accept current trace state", cls: "mod-cta" });
     save.addEventListener("click", () => void this.acceptCodeBaseline());
   }
 
@@ -527,8 +570,8 @@ export class WorkflowAIView extends ItemView {
     await this.savePendingCodeBaseline();
     this.pendingPlan = null;
     this.planContainer.empty();
-    this.appendMessage("assistant", "Saved the current code state as the reviewed baseline. Future scans will report changes from this point.");
-    new Notice("Code review baseline saved.");
+    this.appendMessage("assistant", "Saved the current code trace state. Future builds will reuse unchanged mappings and classify only changed artifacts or a changed workflow graph.");
+    new Notice("Code trace state saved.");
   }
 
   private async savePendingCodeBaseline(): Promise<void> {
@@ -537,8 +580,15 @@ export class WorkflowAIView extends ItemView {
       ...this.plugin.settings.codeBaselines,
       [this.activeProjectPath]: this.pendingCodeBaseline
     };
+    if (this.pendingCodeTraceState) {
+      this.plugin.settings.codeTraceStateByProject = {
+        ...this.plugin.settings.codeTraceStateByProject,
+        [this.activeProjectPath]: this.pendingCodeTraceState
+      };
+    }
     await this.plugin.saveSettings();
     this.pendingCodeBaseline = null;
+    this.pendingCodeTraceState = null;
   }
 
   private appendMessage(role: "user" | "assistant", text: string, error = false): void {
@@ -558,10 +608,10 @@ export class WorkflowAIView extends ItemView {
   }
 }
 
-function codeRoutingRequest(report: CodeScanReport): string {
-  const lines = report.changes.map((change) => {
-    const ids = change.workflowIds.length > 0 ? ` [${change.workflowIds.join(", ")}]` : "";
-    return `${change.status} ${change.path} :: ${change.symbol}${ids}`;
-  });
-  return `Review these implementation changes and locate the affected workflow branch:\n${lines.join("\n")}`;
+function codeWorkflowSignature(index: ProjectIndex): string {
+  return index.entries
+    .filter((entry) => entry.extension === "md" && entry.id)
+    .map((entry) => [entry.id, entry.path, entry.type, entry.status, ...entry.headings].join("|"))
+    .sort()
+    .join("\n");
 }

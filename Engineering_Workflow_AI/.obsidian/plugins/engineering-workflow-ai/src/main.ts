@@ -19,6 +19,7 @@ const DEFAULT_SETTINGS: PluginSettings = {
   contextStrategyVersion: 1,
   codeRootsByProject: {},
   codeBaselines: {},
+  codeTraceStateByProject: {},
   openOnStartup: true,
   activeProjectPath: ""
 };
@@ -80,6 +81,7 @@ export default class EngineeringWorkflowAIPlugin extends Plugin {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded ?? {});
     if (!this.settings.codeRootsByProject || typeof this.settings.codeRootsByProject !== "object") this.settings.codeRootsByProject = {};
     if (!this.settings.codeBaselines || typeof this.settings.codeBaselines !== "object") this.settings.codeBaselines = {};
+    if (!this.settings.codeTraceStateByProject || typeof this.settings.codeTraceStateByProject !== "object") this.settings.codeTraceStateByProject = {};
     if (loaded?.contextStrategyVersion !== DEFAULT_SETTINGS.contextStrategyVersion) {
       this.settings.maxFiles = DEFAULT_SETTINGS.maxFiles;
       this.settings.maxContextChars = DEFAULT_SETTINGS.maxContextChars;

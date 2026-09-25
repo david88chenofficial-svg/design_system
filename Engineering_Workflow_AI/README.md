@@ -2,7 +2,7 @@
 
 This folder is the permanent Engineering Workflow AI workspace, its project collection, and the complete plugin source package. Open this one vault for every project; do not copy the plugin into individual project folders.
 
-See [[Engineering Workflow AI - Plugin Guide]] for the user workflow.
+See [[Engineering Workflow AI - Plugin Guide]] for the user workflow and [[Code Traceability Contract]] for the code/Obsidian synchronization rules.
 
 ## Open and test
 
@@ -24,11 +24,34 @@ The plugin can scan code read-only and propose updates to the corresponding work
 
 1. Keep code in the selected project's `code/` or `src/` folder, or add one or more external code roots under **Settings → Engineering Workflow AI**. External roots are saved separately for each project.
 2. Optionally place a stable workflow ID immediately above a function or class, for example `# workflow: SEAL-ANA-01, SEAL-DEC-01`. Python, JavaScript/TypeScript, C/C++, C#, Java, Go, Rust, Fortran, Julia and Objective-C file extensions are scanned.
-3. Select **Review code changes** in the assistant.
-4. Review the affected symbols, exact local code links, available GitHub commit permalinks and proposed Markdown/Canvas updates.
-5. Apply the workflow changes, or select **Accept current code baseline** when no note edit is needed.
+3. Select **Build/update code links** in the assistant.
+4. Review the model/equation/function mappings, exact local code links, available GitHub commit permalinks and proposed generated trace sections.
+5. Apply the workflow changes, or select **Accept current trace state** when no note edit is needed.
 
-The first scan treats the current code as new relative to an empty baseline and sends one compact outline per source file. After an approved review, later scans report only changed functions/classes. Workflow markers give deterministic mappings; unmarked symbols use the project map for a reviewable AI-assisted match. GitHub permalinks are shown only for code that matches a committed revision. Code is never modified by this feature.
+Every trace build scans a bounded catalog of relevant classes, functions, methods and annotated line regions, even when a previous baseline exists. The first build classifies the full catalog; later builds reuse mappings for unchanged artifacts and send only changed artifacts unless the workflow graph changes. The plugin generates every URL and inserts a managed **Code traceability** table into each mapped workflow note. Human-authored content outside that table is preserved. GitHub permalinks are shown only for code that matches a committed revision. Code is never modified by this feature.
+
+Structured comments make the mapping deterministic:
+
+```python
+# workflow: SEAL-DEC-01
+# role: candidate-model
+# model: Kearton
+class KeartonSeal:
+    ...
+```
+
+Use a region when the trace must open an exact equation or arbitrary line range:
+
+```python
+# workflow-region: SEAL-DEC-01
+# role: implementation
+# model: Kearton
+# equation: mass-flow relation
+w = C1 * sqrt(...)
+# workflow-region-end
+```
+
+Supported roles include `candidate-model`, `implementation`, `comparison`, `verification`, `validation`, `parameter`, `input-output`, `design` and `test`. A role records the code relationship only; it never changes the workflow record's selection, verification, validation, release or approval status.
 
 ## Network and privacy
 
@@ -36,7 +59,7 @@ The first scan treats the current code as new relative to an empty baseline and 
 - The request goes directly from Obsidian to `https://api.openai.com/v1/responses` using the saved key.
 - Existing projects use graph-guided retrieval. The plugin first builds a local metadata index from project-relative paths, frontmatter, headings and links, and reads the primary Canvas as the high-level map.
 - A small routing request chooses the relevant stage or branch. A second planning request receives only the selected Markdown/Canvas files and their graph neighbours—not the whole project.
-- **Review code changes** locally scans configured source roots and sends only the capped changed-symbol excerpts plus the focused workflow branch. It does not upload the entire code repository.
+- **Build/update code links** locally scans configured source roots and sends one bounded catalog of relevant symbols/annotated regions plus workflow IDs, paths, types, statuses and headings. Full workflow-note content and the entire code repository are not uploaded for this mapping step.
 - The defaults cap focused planning context at 12 files and 40,000 characters. The routing map has a separate 24,000-character cap. Both limits can prevent large projects from being sent wholesale.
 - Blank projects skip routing because there is no existing graph to inspect.
 - API requests use `store: false`.

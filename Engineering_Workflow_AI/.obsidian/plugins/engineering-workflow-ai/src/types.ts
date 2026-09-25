@@ -9,6 +9,7 @@ export interface PluginSettings {
   contextStrategyVersion: number;
   codeRootsByProject: Record<string, string[]>;
   codeBaselines: Record<string, CodeBaseline>;
+  codeTraceStateByProject: Record<string, CodeTraceState>;
   openOnStartup: boolean;
   activeProjectPath: string;
 }
@@ -58,6 +59,69 @@ export interface CodeScanReport {
   snapshot: CodeBaseline;
   serialized: string;
   truncated: boolean;
+}
+
+export type CodeTraceRelationship =
+  | "candidate-model"
+  | "implementation"
+  | "comparison"
+  | "verification"
+  | "validation"
+  | "parameter"
+  | "input-output"
+  | "design"
+  | "test"
+  | "other";
+
+export interface CodeArtifact {
+  artifactId: string;
+  root: string;
+  path: string;
+  absolutePath: string;
+  symbol: string;
+  kind: string;
+  lineStart: number;
+  lineEnd: number;
+  hash: string;
+  workflowIds: string[];
+  declaredRole: string;
+  declaredModel: string;
+  declaredEquation: string;
+  summary: string;
+  localUrl: string;
+  githubUrl: string;
+}
+
+export interface CodeTraceCatalog {
+  roots: string[];
+  filesScanned: number;
+  artifacts: CodeArtifact[];
+  annotatedArtifacts: number;
+  omittedArtifacts: number;
+  snapshot: CodeBaseline;
+  serialized: string;
+  truncated: boolean;
+}
+
+export interface CodeTraceMapping {
+  artifact_id: string;
+  workflow_id: string;
+  relationship: CodeTraceRelationship;
+  label: string;
+  rationale: string;
+}
+
+export interface CodeTraceResponse {
+  summary: string;
+  mappings: CodeTraceMapping[];
+  warnings: string[];
+}
+
+export interface CodeTraceState {
+  schemaVersion: number;
+  workflowSignature: string;
+  artifactHashes: Record<string, string>;
+  mappings: CodeTraceMapping[];
 }
 
 export interface ContextFile {

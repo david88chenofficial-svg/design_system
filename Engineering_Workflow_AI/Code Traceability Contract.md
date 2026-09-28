@@ -70,9 +70,9 @@ Model selection still requires declared quantities, domain, assumptions, shared 
 
 - **Code → Obsidian:** stable workflow IDs, roles, model/equation metadata and code hashes identify what changed and where it belongs.
 - **Obsidian → code:** generated tables expose exact file/line links and immutable GitHub permalinks when the source is committed.
-- **No silent code writes:** the plugin reads source code but never inserts or modifies annotations. Engineers retain control of implementation changes.
+- **No silent code writes:** the link builder never changes source. Code + workflow can insert implementation/trace metadata only as part of an explicitly previewed, hash-checked engineering code plan.
 - **Review first:** every Markdown replacement is previewed, hash-checked, journaled and applied only after approval.
 
 ## LLM boundary
 
-The LLM classifies semantic relationships when code lacks explicit annotations. It cannot author URLs, target nonexistent workflow IDs, change source code, or advance decision/verification/validation/release/approval status through trace building. Ambiguous relationships must be omitted or flagged for an engineer.
+The link-building LLM classifies semantic relationships when code lacks explicit annotations. It cannot author URLs, target nonexistent workflow IDs, change source code, or advance decision/verification/validation/release/approval status through trace building. The separate coding agent may propose source/data changes and Python runs, but only within configured roots and only through the explicit code review/apply path. Neither path may advance decision, verification, validation, release or approval status without the required evidence. Ambiguous relationships must be omitted or flagged for an engineer.

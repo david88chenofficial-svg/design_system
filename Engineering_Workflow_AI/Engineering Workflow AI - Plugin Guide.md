@@ -15,7 +15,7 @@ After cloning or downloading the repository, open the `Engineering_Workflow_AI` 
 1. Select an existing project, or enter a name and select **Create project**.
 2. Paste an OpenAI API key into the assistant when required.
 3. Select **Save key**. The key is stored with Obsidian SecretStorage and can be removed with **Clear**.
-4. Choose `Auto`, `Build from scratch`, `Add or modify branches`, or `Audit only`.
+4. Choose `Auto`, `Build from scratch`, `Add or modify branches`, `Audit only`, or `Code + workflow`.
 5. Describe the desired engineering outcome or change.
 6. Check the context-route message. It lists the existing files selected for the request.
 7. Review every proposed file operation. Expand **Context used** to inspect the route again.
@@ -26,6 +26,21 @@ For a blank project, the request can be intentionally short. For example:
 > I want to build an engineering tool that can analyse seal performance and ultimately help design a seal for specified working conditions and geometric constraints. Build the project workflow from scratch.
 
 The user states the outcome; the assistant derives the analysis, qualification and design-development workflow. Missing engineering facts remain open rather than being invented.
+
+## Implement models, experiments and plots
+
+Use **Code + workflow** when the instruction should modify the engineering repository, execute Python, and synchronize the observed result into Obsidian. **Auto** also routes explicit implementation, run, plot, fitting and calibration requests to this path.
+
+1. Select the matching Obsidian project.
+2. Under **Settings → Engineering Workflow AI**, add the repository under **External code roots for selected project** and set the Python executable or interpreter path.
+3. Describe the implementation directly—for example, “Implement this seal model and add it to the existing all-model comparison.” Include the governing equations, variable definitions, units, coefficients, assumptions and intended domain that are not already present in a cited implementation.
+4. For experiments, include or identify the operating configuration, data columns, units, points, measurement uncertainty and whether the data is for calibration or independent validation.
+5. Review every exact source/data replacement and declared Python run.
+6. Select **Apply code, run, and sync workflow**.
+7. Inspect the actual run status and then review/apply the proposed Obsidian evidence update.
+8. Use **Build/update code links** after implementation to regenerate all exact line links when desired.
+
+The agent can add a candidate class/function, register it with a common comparison runner, create focused tests, create CSV/JSON data, generate non-interactive comparison scripts, fit declared parameters, calculate metrics, and generate plots. It does not silently infer missing physics or call calibration agreement an independent validation. Model selection remains open unless the record contains the comparison domain, metric, threshold and applicable evidence.
 
 ## Build and update exact code links
 
@@ -63,16 +78,17 @@ The generated section is delimited by `workflow-ai-code-trace` comments. Rebuild
 
 See [[Code Traceability Contract]] for the complete annotation grammar, role meanings and LLM safety boundary.
 
-Applying the proposed note changes also saves the reviewed trace state. If no note changes are required, select **Accept current trace state**. Later builds reuse unchanged mappings and classify only changed artifacts unless the workflow graph changes. Code is never edited. A `candidate-model` mapping does not select that model; a `verification` or `validation` mapping identifies implementation only and does not establish a successful result.
+Applying the proposed note changes also saves the reviewed trace state. If no note changes are required, select **Accept current trace state**. Later builds reuse unchanged mappings and classify only changed artifacts unless the workflow graph changes. The link-building action never edits code; code edits occur only through a separately previewed **Code + workflow** plan. A `candidate-model` mapping does not select that model; a `verification` or `validation` mapping identifies implementation only and does not establish a successful result.
 
 ## Safety boundary
 
-- The AI proposes structured changes; it never writes directly.
-- The plugin allows only `.md` and `.canvas` creation or replacement inside the selected project.
-- Code roots are read-only and scoped to the selected project configuration.
-- Deletion, hidden paths, `.obsidian`, shell commands and executable-code modifications are blocked.
+- The AI proposes structured changes; the plugin validates and applies them only after explicit review.
+- Workflow plans allow only `.md` and `.canvas` creation or replacement inside the selected project.
+- Code + workflow plans allow reviewed source/data creation or exact-block replacement only inside configured engineering roots.
+- Python execution uses the configured interpreter directly and permits only relative scripts, `pytest`, or `unittest`; no shell, inline Python, interactive Python or package-install command is exposed.
+- Deletion, renaming, hidden paths, `.obsidian`, parent traversal and writes outside the configured scopes are blocked.
 - Existing files require matching SHA-256 hashes before replacement.
-- Every applied plan receives a JSON change journal under the selected project's `04 Development Log/AI Changes` folder.
+- Every applied workflow plan receives a JSON change journal under the selected project's `04 Development Log/AI Changes` folder. Source edits are prevalidated as one set and restored if a filesystem write fails before execution.
 
 ## Network boundary
 
@@ -82,6 +98,8 @@ Selecting **Send** on an existing project normally makes two API requests:
 2. The planning request receives only the routed branch and nearby linked notes.
 
 The plugin builds the map locally. It does not send every note in full for every change. Default focused-context limits are 12 files and 40,000 characters, while the compact routing map is capped at 24,000 characters. If routing is unavailable, a local path/metadata/heading matcher selects the branch. A blank project skips routing and goes directly to planning.
+
+Code + workflow requests add a repository-routing request containing paths, extensions and sizes, followed by a coding request containing at most eight selected files and 120,000 source/data characters by default. After approved execution, a result-synchronization request receives the actual run output, declared result hashes, affected code artifacts and focused workflow branch.
 
 Other projects are excluded. Requests use `store: false`. No project data is transmitted merely by opening the panel.
 

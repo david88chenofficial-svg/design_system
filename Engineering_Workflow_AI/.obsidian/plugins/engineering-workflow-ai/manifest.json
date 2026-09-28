@@ -1,9 +1,9 @@
 {
   "id": "engineering-workflow-ai",
   "name": "Engineering Workflow AI",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "minAppVersion": "1.11.4",
-  "description": "Build engineering workflows and maintain exact, review-first traceability to source code.",
+  "description": "Build workflows, edit and run engineering code, and maintain review-first evidence traceability.",
   "author": "David",
   "isDesktopOnly": true
 }

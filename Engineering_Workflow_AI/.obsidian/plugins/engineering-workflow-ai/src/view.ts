@@ -1,6 +1,20 @@
 import { FileSystemAdapter, ItemView, Notice, WorkspaceLeaf, setIcon } from "obsidian";
 import { resolveCodeRoots, scanCodeInventory, serializeCodeTraceCatalog } from "./code";
-import { requestChangePlan, requestCodeTraceMappings, requestContextRoute } from "./openai";
+import {
+  requestChangePlan,
+  requestCodeTraceMappings,
+  requestContextRoute,
+  requestEngineeringCodePlan,
+  requestEngineeringContextRoute,
+  requestEngineeringResultPlan
+} from "./openai";
+import {
+  applyEngineeringCodePlan,
+  buildEngineeringFileManifest,
+  isEngineeringCodeRequest,
+  readEngineeringCodeContext,
+  serializeEngineeringResult
+} from "./engineering";
 import { createFallbackRoute } from "./retrieval";
 import { buildCodeTracePlan } from "./trace";
 import { applyChangePlan, buildProjectIndex, buildVaultContext, createProject, listProjectPaths } from "./vault";
@@ -12,6 +26,8 @@ import type {
   CodeTraceResponse,
   CodeTraceState,
   ContextRoute,
+  EngineeringCodeContext,
+  EngineeringCodePlan,
   ProjectIndex,
   VaultChangePlan,
   VaultContext,
@@ -34,6 +50,9 @@ export class WorkflowAIView extends ItemView {
   private activeProjectPath = "";
   private pendingCodeBaseline: CodeBaseline | null = null;
   private pendingCodeTraceState: CodeTraceState | null = null;
+  private pendingEngineeringPlan: EngineeringCodePlan | null = null;
+  private pendingEngineeringContext: EngineeringCodeContext | null = null;
+  private pendingEngineeringRequest = "";
 
   constructor(leaf: WorkspaceLeaf, plugin: EngineeringWorkflowAIPlugin) {
     super(leaf);
@@ -70,7 +89,7 @@ export class WorkflowAIView extends ItemView {
     setIcon(icon, "engineering-workflow-ai");
     const title = header.createDiv();
     title.createEl("h3", { text: "Engineering Workflow AI" });
-    title.createEl("p", { text: "Plan first. Review. Then apply locally." });
+    title.createEl("p", { text: "Build workflows, edit engineering code, run analyses, and preserve the evidence chain." });
 
     await this.renderProjectSection(root);
     this.renderKeySection(root);
@@ -169,6 +188,9 @@ export class WorkflowAIView extends ItemView {
     this.pendingPlan = null;
     this.pendingCodeBaseline = null;
     this.pendingCodeTraceState = null;
+    this.pendingEngineeringPlan = null;
+    this.pendingEngineeringContext = null;
+    this.pendingEngineeringRequest = "";
     await this.render();
     new Notice(`Active project: ${path.split("/").pop() ?? path}`);
   }
@@ -190,6 +212,9 @@ export class WorkflowAIView extends ItemView {
       this.pendingPlan = null;
       this.pendingCodeBaseline = null;
       this.pendingCodeTraceState = null;
+      this.pendingEngineeringPlan = null;
+      this.pendingEngineeringContext = null;
+      this.pendingEngineeringRequest = "";
       await this.render();
       new Notice(`Project created: ${name}`);
     } catch (error) {
@@ -244,7 +269,8 @@ export class WorkflowAIView extends ItemView {
       ["auto", "Auto"],
       ["build", "Build from scratch"],
       ["evolve", "Add or modify branches"],
-      ["audit", "Audit only"]
+      ["audit", "Audit only"],
+      ["engineer", "Code + workflow"]
     ]) {
       select.createEl("option", { text: label, value });
     }
@@ -259,11 +285,11 @@ export class WorkflowAIView extends ItemView {
     const configuredRoots = this.plugin.settings.codeRootsByProject[this.activeProjectPath] ?? [];
     const section = root.createDiv({ cls: "workflow-ai-code-section" });
     const text = section.createDiv();
-    text.createEl("strong", { text: "Code traceability" });
+    text.createEl("strong", { text: "Engineering code" });
     text.createEl("small", {
       text: configuredRoots.length > 0
-        ? `${configuredRoots.length} external code root(s). Build exact symbol/region links into workflow records.`
-        : "Project code/ and src/ folders are detected automatically. Add external roots in plugin settings.",
+        ? `${configuredRoots.length} external root(s). Code + workflow mode can edit and run Python after preview; link building refreshes exact symbol locations.`
+        : "Project code/ and src/ folders are detected automatically. Add external roots in plugin settings to edit an existing repository.",
       cls: "workflow-ai-project-status"
     });
     this.codeReviewButton = section.createEl("button", { text: "Build/update code links" });
@@ -285,9 +311,16 @@ export class WorkflowAIView extends ItemView {
     const priorHistory = [...this.history];
     this.pendingCodeBaseline = null;
     this.pendingCodeTraceState = null;
+    this.pendingEngineeringPlan = null;
+    this.pendingEngineeringContext = null;
+    this.pendingEngineeringRequest = "";
     this.appendMessage("user", request);
     this.history.push({ role: "user", text: request });
     this.promptInput.value = "";
+    if (this.mode === "engineer" || (this.mode === "auto" && isEngineeringCodeRequest(request))) {
+      await this.sendEngineeringRequest(request, apiKey, priorHistory);
+      return;
+    }
     this.setBusy(true, "Reading the project map and locating the relevant branch…");
     this.planContainer.empty();
     try {
@@ -344,6 +377,273 @@ export class WorkflowAIView extends ItemView {
       const message = error instanceof Error ? error.message : String(error);
       this.appendMessage("assistant", `I could not prepare the plan: ${message}`, true);
       new Notice(`Engineering Workflow AI: ${message}`);
+    } finally {
+      this.setBusy(false);
+    }
+  }
+
+  private async sendEngineeringRequest(
+    request: string,
+    apiKey: string,
+    priorHistory: ChatMessage[]
+  ): Promise<void> {
+    const adapter = this.app.vault.adapter;
+    if (!(adapter instanceof FileSystemAdapter)) {
+      this.appendMessage("assistant", "Code + workflow mode requires an Obsidian desktop file-system vault.", true);
+      return;
+    }
+    this.setBusy(true, "Locating the smallest relevant source, data, and workflow context…");
+    this.planContainer.empty();
+    try {
+      const roots = await resolveCodeRoots(
+        adapter.getBasePath(),
+        this.activeProjectPath,
+        this.plugin.settings.codeRootsByProject[this.activeProjectPath] ?? []
+      );
+      if (roots.length === 0) {
+        throw new Error("No engineering code root was found. Add an external root in Settings → Engineering Workflow AI, or create code/ or src/ inside the selected project.");
+      }
+      const manifest = await buildEngineeringFileManifest(roots);
+      const codeRoute = await requestEngineeringContextRoute(
+        apiKey,
+        this.plugin.settings,
+        request,
+        manifest,
+        priorHistory
+      );
+      const codeContext = await readEngineeringCodeContext(
+        manifest,
+        codeRoute,
+        this.plugin.settings.maxCodeFiles,
+        this.plugin.settings.maxCodeContextChars
+      );
+      const index = await buildProjectIndex(this.app, this.activeProjectPath, request);
+      let workflowRoute: ContextRoute;
+      if (index.entries.length === 0) {
+        workflowRoute = {
+          focus: "Empty workflow project",
+          rationale: "No existing workflow record is available; result synchronization may create the minimum required record.",
+          selected_paths: [],
+          needs_broader_context: false
+        };
+      } else {
+        try {
+          workflowRoute = await requestContextRoute(
+            apiKey,
+            this.plugin.settings,
+            "evolve",
+            request,
+            index,
+            priorHistory
+          );
+        } catch {
+          workflowRoute = createFallbackRoute(index, request);
+        }
+      }
+      const workflowContext = await buildVaultContext(
+        this.app,
+        index,
+        workflowRoute,
+        request,
+        this.plugin.settings.maxFiles,
+        this.plugin.settings.maxContextChars
+      );
+      this.appendMessage(
+        "assistant",
+        `Code route: ${codeRoute.focus}. Reading ${codeContext.files.length} engineering file(s): ${codeContext.files.map((file) => `${file.root_index}:${file.path}`).join(" → ")}. Workflow route: ${workflowRoute.focus}.`
+      );
+      const plan = await requestEngineeringCodePlan(
+        apiKey,
+        this.plugin.settings,
+        request,
+        this.activeProjectPath,
+        workflowContext,
+        codeContext,
+        priorHistory
+      );
+      this.pendingEngineeringPlan = plan;
+      this.pendingEngineeringContext = codeContext;
+      this.pendingEngineeringRequest = request;
+      this.appendMessage("assistant", plan.assistant_message);
+      this.history.push({ role: "assistant", text: plan.assistant_message });
+      this.renderEngineeringPlan(plan, codeContext, codeRoute.rationale);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.appendMessage("assistant", `I could not prepare the engineering code change: ${message}`, true);
+      new Notice(`Engineering code request failed: ${message}`);
+    } finally {
+      this.setBusy(false);
+    }
+  }
+
+  private renderEngineeringPlan(
+    plan: EngineeringCodePlan,
+    context: EngineeringCodeContext,
+    routeRationale: string
+  ): void {
+    this.planContainer.empty();
+    const card = this.planContainer.createDiv({ cls: "workflow-ai-plan-card" });
+    card.createEl("h4", { text: "Proposed code, data, and analysis changes" });
+    card.createEl("p", { text: plan.summary });
+    const contextDetails = card.createEl("details");
+    contextDetails.createEl("summary", { text: `Engineering context used: ${context.files.length} file(s)` });
+    contextDetails.createEl("p", { text: routeRationale });
+    const contextList = contextDetails.createEl("ul");
+    for (const file of context.files) {
+      contextList.createEl("li", { text: `${file.root_index}:${file.path}${file.truncated ? " (truncated; not writable)" : ""}` });
+    }
+    if (context.truncated) {
+      card.createEl("p", {
+        text: "Some repository context was omitted or truncated. The plan may edit only fully loaded files.",
+        cls: "workflow-ai-warning"
+      });
+    }
+    for (const warning of plan.warnings) card.createEl("p", { text: warning, cls: "workflow-ai-warning" });
+
+    if (plan.operations.length === 0 && plan.runs.length === 0) {
+      card.createEl("p", { text: "No executable changes were proposed. Supply the missing equations, units, conditions, data, or target file identified above." });
+      return;
+    }
+    if (plan.operations.length > 0) {
+      const list = card.createEl("ol", { cls: "workflow-ai-operation-list" });
+      for (const operation of plan.operations) {
+        const item = list.createEl("li");
+        item.createEl("strong", { text: `${operation.action.toUpperCase()}: ${operation.root_index}:${operation.path}` });
+        item.createEl("p", { text: operation.reason });
+        const details = item.createEl("details");
+        details.createEl("summary", { text: operation.action === "create" ? "Preview new file" : "Preview exact replacement" });
+        if (operation.search) {
+          details.createEl("small", { text: "Replace:" });
+          details.createEl("pre", { text: operation.search });
+          details.createEl("small", { text: "With:" });
+        }
+        details.createEl("pre", { text: operation.content });
+      }
+    }
+    if (plan.runs.length > 0) {
+      const runDetails = card.createEl("details", { cls: "workflow-ai-run-plan" });
+      runDetails.createEl("summary", { text: `Python runs after applying: ${plan.runs.length}` });
+      const runList = runDetails.createEl("ol");
+      for (const run of plan.runs) {
+        const item = runList.createEl("li");
+        item.createEl("code", { text: `${this.plugin.settings.pythonExecutable} ${run.args.join(" ")}` });
+        item.createEl("p", { text: run.reason });
+        if (run.expected_outputs.length > 0) {
+          item.createEl("small", { text: `Expected outputs: ${run.expected_outputs.join(", ")}` });
+        }
+      }
+    }
+    if (plan.verification_checks.length > 0) {
+      const checks = card.createEl("details");
+      checks.createEl("summary", { text: `Planned verification checks: ${plan.verification_checks.length}` });
+      const list = checks.createEl("ul");
+      for (const check of plan.verification_checks) list.createEl("li", { text: check });
+    }
+    const buttons = card.createDiv({ cls: "workflow-ai-plan-actions" });
+    const discard = buttons.createEl("button", { text: "Discard" });
+    discard.addEventListener("click", () => {
+      this.pendingEngineeringPlan = null;
+      this.pendingEngineeringContext = null;
+      this.pendingEngineeringRequest = "";
+      this.planContainer.empty();
+    });
+    const apply = buttons.createEl("button", { text: "Apply code, run, and sync workflow", cls: "mod-cta" });
+    apply.addEventListener("click", () => void this.applyPendingEngineeringPlan(apply));
+  }
+
+  private async applyPendingEngineeringPlan(button: HTMLButtonElement): Promise<void> {
+    const plan = this.pendingEngineeringPlan;
+    const codeContext = this.pendingEngineeringContext;
+    const request = this.pendingEngineeringRequest;
+    const apiKey = this.plugin.getApiKey();
+    if (!plan || !codeContext || !apiKey) return;
+    button.disabled = true;
+    button.setText("Applying and running…");
+    this.setBusy(true, "Applying the reviewed source/data edits and running the declared Python analyses…");
+    let codeApplied = false;
+    try {
+      const report = await applyEngineeringCodePlan(
+        plan,
+        codeContext,
+        this.plugin.settings.pythonExecutable
+      );
+      codeApplied = true;
+      const successfulRuns = report.runs.filter((run) => run.success).length;
+      this.appendMessage(
+        "assistant",
+        `Code applied: ${report.created.length} file(s) created and ${report.modified.length} file(s) modified. Python runs: ${successfulRuns}/${report.runs.length} succeeded. Synchronizing the observed results into the workflow now.`,
+        report.runs.some((run) => !run.success)
+      );
+
+      const catalog = await scanCodeInventory(codeContext.roots);
+      const changed = new Set([...report.created, ...report.modified]);
+      const affectedArtifacts = catalog.artifacts.filter((artifact) => {
+        const rootIndex = codeContext.roots.findIndex((root) => root === artifact.root);
+        return changed.has(`${rootIndex}:${artifact.path}`);
+      });
+      const exactArtifacts = affectedArtifacts.length > 0
+        ? serializeCodeTraceCatalog(affectedArtifacts, catalog.filesScanned)
+        : [...report.created, ...report.modified].join("\n");
+
+      const index = await buildProjectIndex(this.app, this.activeProjectPath, request);
+      let route: ContextRoute;
+      if (index.entries.length === 0) {
+        route = {
+          focus: "Create implementation evidence",
+          rationale: "The project has no existing workflow record for the completed engineering change.",
+          selected_paths: [],
+          needs_broader_context: false
+        };
+      } else {
+        try {
+          route = await requestContextRoute(apiKey, this.plugin.settings, "evolve", request, index, this.history);
+        } catch {
+          route = createFallbackRoute(index, request);
+        }
+      }
+      const workflowContext = await buildVaultContext(
+        this.app,
+        index,
+        route,
+        request,
+        this.plugin.settings.maxFiles,
+        this.plugin.settings.maxContextChars
+      );
+      const workflowPlan = await requestEngineeringResultPlan(
+        apiKey,
+        this.plugin.settings,
+        request,
+        workflowContext,
+        serializeEngineeringResult(plan, report),
+        exactArtifacts
+      );
+      this.pendingEngineeringPlan = null;
+      this.pendingEngineeringContext = null;
+      this.pendingEngineeringRequest = "";
+      this.pendingPlan = workflowPlan;
+      this.pendingCodeBaseline = catalog.snapshot;
+      this.appendMessage("assistant", workflowPlan.assistant_message);
+      this.history.push({ role: "assistant", text: workflowPlan.assistant_message });
+      this.renderPlan(workflowPlan, workflowContext);
+      new Notice("Engineering code and analysis completed; review the workflow synchronization.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (codeApplied) {
+        this.pendingEngineeringPlan = null;
+        this.pendingEngineeringContext = null;
+        this.pendingEngineeringRequest = "";
+        this.appendMessage(
+          "assistant",
+          `The reviewed code/data changes and declared runs completed, but the Obsidian synchronization could not be prepared: ${message}. The code changes remain applied; use Build/update code links after resolving the API or context problem.`,
+          true
+        );
+        new Notice("Code changes remain applied, but workflow synchronization failed.");
+      } else {
+        this.appendMessage("assistant", `Engineering execution stopped before completing the code change: ${message}`, true);
+        new Notice(`Engineering execution failed: ${message}`);
+        button.disabled = false;
+        button.setText("Apply code, run, and sync workflow");
+      }
     } finally {
       this.setBusy(false);
     }

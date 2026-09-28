@@ -6,12 +6,21 @@ import {
   CODE_TRACE_SCHEMA,
   CONTEXT_ROUTE_SCHEMA,
   CONTEXT_ROUTER_POLICY,
+  ENGINEERING_CODE_PLAN_SCHEMA,
+  ENGINEERING_CODE_POLICY,
+  ENGINEERING_CONTEXT_ROUTE_SCHEMA,
+  ENGINEERING_CONTEXT_ROUTER_POLICY,
+  ENGINEERING_RESULT_POLICY,
   ENGINEERING_WORKFLOW_POLICY,
   modeInstruction
 } from "./prompts";
 import { validateChangePlan } from "./safety";
 import type {
   ChatMessage,
+  EngineeringCodeContext,
+  EngineeringCodePlan,
+  EngineeringContextRoute,
+  EngineeringFileManifest,
   CodeScanReport,
   CodeTraceCatalog,
   CodeTraceRelationship,
@@ -23,6 +32,7 @@ import type {
   VaultContext,
   WorkflowMode
 } from "./types";
+import { validateEngineeringCodePlan } from "./engineering";
 
 interface ResponsesPayload {
   output_text?: string;
@@ -319,6 +329,169 @@ export async function requestCodeTraceMappings(
     }
   }
   return { summary: proposed.summary, mappings, warnings: Array.from(new Set(warnings)) };
+}
+
+export async function requestEngineeringContextRoute(
+  apiKey: string,
+  settings: PluginSettings,
+  userRequest: string,
+  manifest: EngineeringFileManifest,
+  history: ChatMessage[]
+): Promise<EngineeringContextRoute> {
+  const recentHistory = history
+    .slice(-4)
+    .map((message) => `${message.role.toUpperCase()}: ${message.text}`)
+    .join("\n\n");
+  const input = [
+    recentHistory ? `RECENT CHAT\n${recentHistory}` : "",
+    `CURRENT USER REQUEST\n${userRequest}`,
+    manifest.serialized
+  ].filter(Boolean).join("\n\n---\n\n");
+  const response = await requestUrl({
+    url: "https://api.openai.com/v1/responses",
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: settings.model,
+      store: false,
+      instructions: ENGINEERING_CONTEXT_ROUTER_POLICY,
+      input,
+      max_output_tokens: 1_500,
+      text: {
+        format: {
+          type: "json_schema",
+          name: "engineering_code_context_route",
+          strict: true,
+          schema: ENGINEERING_CONTEXT_ROUTE_SCHEMA
+        }
+      }
+    }),
+    throw: false
+  });
+  const payload = response.json as ResponsesPayload;
+  if (response.status >= 400) {
+    throw new Error(payload.error?.message ?? `OpenAI code-routing request failed with status ${response.status}.`);
+  }
+  let route: EngineeringContextRoute;
+  try {
+    route = JSON.parse(extractResponseText(payload)) as EngineeringContextRoute;
+  } catch {
+    throw new Error("The model returned a response that could not be parsed as a code-context route.");
+  }
+  if (!route || typeof route.focus !== "string" || typeof route.rationale !== "string"
+    || !Array.isArray(route.selected_files) || typeof route.needs_more_context !== "boolean") {
+    throw new Error("The model returned an invalid code-context route.");
+  }
+  return route;
+}
+
+export async function requestEngineeringCodePlan(
+  apiKey: string,
+  settings: PluginSettings,
+  userRequest: string,
+  projectPath: string,
+  workflowContext: VaultContext,
+  codeContext: EngineeringCodeContext,
+  history: ChatMessage[]
+): Promise<EngineeringCodePlan> {
+  const recentHistory = history
+    .slice(-6)
+    .map((message) => `${message.role.toUpperCase()}: ${message.text}`)
+    .join("\n\n");
+  const input = [
+    recentHistory ? `RECENT CHAT\n${recentHistory}` : "",
+    `CURRENT USER REQUEST\n${userRequest}`,
+    `SELECTED OBSIDIAN PROJECT\n${projectPath}`,
+    `RELEVANT WORKFLOW CONTEXT\n${workflowContext.serialized || "(No workflow records selected.)"}`,
+    `FULL ENGINEERING FILE CONTENT SELECTED FOR EDITING\n${codeContext.serialized}`,
+    codeContext.truncated
+      ? "CONTEXT LIMIT NOTICE\nSome requested engineering context was unavailable or truncated. Do not replace a truncated file."
+      : "CONTEXT LIMIT NOTICE\nAll selected engineering files were supplied in full."
+  ].filter(Boolean).join("\n\n---\n\n");
+  const response = await requestUrl({
+    url: "https://api.openai.com/v1/responses",
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: settings.model,
+      store: false,
+      instructions: ENGINEERING_CODE_POLICY,
+      input,
+      max_output_tokens: 24_000,
+      text: {
+        format: {
+          type: "json_schema",
+          name: "engineering_code_change_plan",
+          strict: true,
+          schema: ENGINEERING_CODE_PLAN_SCHEMA
+        }
+      }
+    }),
+    throw: false
+  });
+  const payload = response.json as ResponsesPayload;
+  if (response.status >= 400) {
+    throw new Error(payload.error?.message ?? `OpenAI engineering-code request failed with status ${response.status}.`);
+  }
+  let plan: EngineeringCodePlan;
+  try {
+    plan = JSON.parse(extractResponseText(payload)) as EngineeringCodePlan;
+  } catch {
+    throw new Error("The model returned a response that could not be parsed as an engineering code plan.");
+  }
+  validateEngineeringCodePlan(plan, codeContext);
+  return plan;
+}
+
+export async function requestEngineeringResultPlan(
+  apiKey: string,
+  settings: PluginSettings,
+  userRequest: string,
+  context: VaultContext,
+  appliedResult: string,
+  exactCodeArtifacts: string
+): Promise<VaultChangePlan> {
+  const input = [
+    "Mode: synchronize an applied engineering implementation and its actual run evidence.",
+    `ORIGINAL USER REQUEST\n${userRequest}`,
+    `SELECTED PROJECT\n${context.projectPath}\nAll workflow operation paths must be relative to this project root.`,
+    `FOCUSED WORKFLOW CONTEXT\n${context.serialized}`,
+    appliedResult,
+    `EXACT POST-CHANGE CODE ARTIFACTS\n${exactCodeArtifacts}`
+  ].join("\n\n---\n\n");
+  const response = await requestUrl({
+    url: "https://api.openai.com/v1/responses",
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: settings.model,
+      store: false,
+      instructions: `${ENGINEERING_WORKFLOW_POLICY}\n\n${ENGINEERING_RESULT_POLICY}`,
+      input,
+      max_output_tokens: 12_000,
+      text: {
+        format: {
+          type: "json_schema",
+          name: "engineering_result_workflow_plan",
+          strict: true,
+          schema: CHANGE_PLAN_SCHEMA
+        }
+      }
+    }),
+    throw: false
+  });
+  const payload = response.json as ResponsesPayload;
+  if (response.status >= 400) {
+    throw new Error(payload.error?.message ?? `OpenAI workflow-sync request failed with status ${response.status}.`);
+  }
+  let plan: VaultChangePlan;
+  try {
+    plan = JSON.parse(extractResponseText(payload)) as VaultChangePlan;
+  } catch {
+    throw new Error("The model returned a response that could not be parsed as a workflow-sync plan.");
+  }
+  validateChangePlan(plan);
+  return plan;
 }
 
 export function extractResponseText(payload: ResponsesPayload): string {

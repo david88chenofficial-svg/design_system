@@ -20,6 +20,9 @@ const DEFAULT_SETTINGS: PluginSettings = {
   codeRootsByProject: {},
   codeBaselines: {},
   codeTraceStateByProject: {},
+  pythonExecutable: "python",
+  maxCodeFiles: 8,
+  maxCodeContextChars: 120_000,
   openOnStartup: true,
   activeProjectPath: ""
 };
@@ -82,6 +85,9 @@ export default class EngineeringWorkflowAIPlugin extends Plugin {
     if (!this.settings.codeRootsByProject || typeof this.settings.codeRootsByProject !== "object") this.settings.codeRootsByProject = {};
     if (!this.settings.codeBaselines || typeof this.settings.codeBaselines !== "object") this.settings.codeBaselines = {};
     if (!this.settings.codeTraceStateByProject || typeof this.settings.codeTraceStateByProject !== "object") this.settings.codeTraceStateByProject = {};
+    if (!this.settings.pythonExecutable) this.settings.pythonExecutable = DEFAULT_SETTINGS.pythonExecutable;
+    if (!Number.isFinite(this.settings.maxCodeFiles)) this.settings.maxCodeFiles = DEFAULT_SETTINGS.maxCodeFiles;
+    if (!Number.isFinite(this.settings.maxCodeContextChars)) this.settings.maxCodeContextChars = DEFAULT_SETTINGS.maxCodeContextChars;
     if (loaded?.contextStrategyVersion !== DEFAULT_SETTINGS.contextStrategyVersion) {
       this.settings.maxFiles = DEFAULT_SETTINGS.maxFiles;
       this.settings.maxContextChars = DEFAULT_SETTINGS.maxContextChars;
@@ -148,7 +154,7 @@ class EngineeringWorkflowAISettingTab extends PluginSettingTab {
         }));
     new Setting(this.containerEl)
       .setName("External code roots for selected project")
-      .setDesc(`Optional absolute or vault-relative paths for ${this.plugin.settings.activeProjectPath || "the selected project"}, one per line. Project code/ and src/ folders are detected automatically. Code is read-only.`)
+      .setDesc(`Optional absolute or vault-relative paths for ${this.plugin.settings.activeProjectPath || "the selected project"}, one per line. Project code/ and src/ folders are detected automatically. Code + workflow mode may edit these roots after preview and approval.`)
       .addTextArea((text) => text
         .setPlaceholder("D:\\Engineering\\my-code")
         .setValue((this.plugin.settings.codeRootsByProject[this.plugin.settings.activeProjectPath] ?? []).join("\n"))
@@ -162,6 +168,40 @@ class EngineeringWorkflowAISettingTab extends PluginSettingTab {
             .filter(Boolean)
           };
           await this.plugin.saveSettings();
+        }));
+    new Setting(this.containerEl)
+      .setName("Python executable")
+      .setDesc("Python command or absolute interpreter path used for approved analysis and test runs. No shell is used.")
+      .addText((text) => text
+        .setPlaceholder(DEFAULT_SETTINGS.pythonExecutable)
+        .setValue(this.plugin.settings.pythonExecutable)
+        .onChange(async (value) => {
+          this.plugin.settings.pythonExecutable = value.trim() || DEFAULT_SETTINGS.pythonExecutable;
+          await this.plugin.saveSettings();
+        }));
+    new Setting(this.containerEl)
+      .setName("Maximum engineering files")
+      .setDesc("Maximum source/data files selected for one coding request.")
+      .addText((text) => text
+        .setValue(String(this.plugin.settings.maxCodeFiles))
+        .onChange(async (value) => {
+          const parsed = Number.parseInt(value, 10);
+          if (Number.isFinite(parsed) && parsed >= 1 && parsed <= 16) {
+            this.plugin.settings.maxCodeFiles = parsed;
+            await this.plugin.saveSettings();
+          }
+        }));
+    new Setting(this.containerEl)
+      .setName("Maximum engineering context characters")
+      .setDesc("Maximum total source/data characters supplied to a code-authoring request.")
+      .addText((text) => text
+        .setValue(String(this.plugin.settings.maxCodeContextChars))
+        .onChange(async (value) => {
+          const parsed = Number.parseInt(value, 10);
+          if (Number.isFinite(parsed) && parsed >= 20_000 && parsed <= 400_000) {
+            this.plugin.settings.maxCodeContextChars = parsed;
+            await this.plugin.saveSettings();
+          }
         }));
   }
 }

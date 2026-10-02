@@ -27,6 +27,19 @@ For a blank project, the request can be intentionally short. For example:
 
 The user states the outcome; the assistant derives the analysis, qualification and design-development workflow. Missing engineering facts remain open rather than being invented.
 
+## Model-stage input and output contracts
+
+For every executable computational or physical-model stage, the assistant builds two complementary traces:
+
+```text
+inputs → stage → outputs
+         stage → decision → reason → evidence/code
+```
+
+The stage note contains **Inputs**, **Model or method**, **Outputs**, and **Acceptance and verification** sections. Its consolidated input card is placed above the stage on the primary Canvas and its output card below it. When a downstream model consumes an upstream result, a labelled edge connects the upstream output card to the downstream input card and names the transferred quantities or fields. Inputs received from upstream are kept separate from additional geometry, material, boundary-condition and configuration inputs.
+
+The assistant does not create one node per scalar parameter or turn ordinary coding steps into main workflow boxes. A separate interface decision is created when a handoff requires an engineering choice such as interpolation, aggregation, unit or coordinate conversion, or pressure-to-load mapping. Passing execution is not automatically treated as verification, and verification remains separate from physical validation.
+
 ## Implement models, experiments and plots
 
 Use **Code + workflow** when the instruction should modify the engineering repository, execute Python, and synchronize the observed result into Obsidian. **Auto** also routes explicit implementation, run, plot, fitting and calibration requests to this path.

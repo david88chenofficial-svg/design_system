@@ -483,7 +483,7 @@ export class WorkflowAIView extends ItemView {
   ): void {
     this.planContainer.empty();
     const card = this.planContainer.createDiv({ cls: "workflow-ai-plan-card" });
-    card.createEl("h4", { text: "Proposed code, data, and analysis changes" });
+    this.renderPlanHeader(card, "Proposed code, data, and analysis changes");
     card.createEl("p", { text: plan.summary });
     const contextDetails = card.createEl("details");
     contextDetails.createEl("summary", { text: `Engineering context used: ${context.files.length} file(s)` });
@@ -770,7 +770,7 @@ export class WorkflowAIView extends ItemView {
   ): void {
     this.planContainer.empty();
     const card = this.planContainer.createDiv({ cls: "workflow-ai-plan-card" });
-    card.createEl("h4", { text: "Proposed local changes" });
+    this.renderPlanHeader(card, "Proposed local changes");
     card.createEl("small", { text: `Project: ${this.activeProjectPath}`, cls: "workflow-ai-project-status" });
     card.createEl("p", { text: plan.summary });
     const contextDetails = card.createEl("details");
@@ -891,12 +891,43 @@ export class WorkflowAIView extends ItemView {
     this.pendingCodeTraceState = null;
   }
 
+  private renderPlanHeader(card: HTMLElement, title: string): void {
+    const header = card.createDiv({ cls: "workflow-ai-plan-header" });
+    header.createEl("h4", { text: title });
+    header.createEl("small", {
+      text: "Drag the lower edge of this review area to resize it.",
+      cls: "workflow-ai-resize-hint"
+    });
+  }
+
   private appendMessage(role: "user" | "assistant", text: string, error = false): void {
     if (!this.messageList) return;
     const message = this.messageList.createDiv({ cls: `workflow-ai-message is-${role}${error ? " is-error" : ""}` });
-    message.createDiv({ text: role === "user" ? "You" : "Workflow AI", cls: "workflow-ai-message-role" });
+    const header = message.createDiv({ cls: "workflow-ai-message-header" });
+    header.createDiv({ text: role === "user" ? "You" : "Workflow AI", cls: "workflow-ai-message-role" });
+    const copy = header.createEl("button", {
+      text: "Copy",
+      cls: "workflow-ai-message-copy",
+      attr: { type: "button", "aria-label": `Copy ${role === "user" ? "your prompt" : "Workflow AI response"}` }
+    });
+    copy.addEventListener("click", () => void this.copyMessage(copy, text));
     message.createDiv({ text, cls: "workflow-ai-message-text" });
     this.messageList.scrollTop = this.messageList.scrollHeight;
+  }
+
+  private async copyMessage(button: HTMLButtonElement, text: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(text);
+      button.setText("Copied");
+      button.setAttribute("aria-label", "Copied to clipboard");
+      window.setTimeout(() => {
+        if (!button.isConnected) return;
+        button.setText("Copy");
+        button.setAttribute("aria-label", "Copy message");
+      }, 1_500);
+    } catch {
+      new Notice("Clipboard access failed. Select the message text and use Ctrl/Cmd+C.");
+    }
   }
 
   private setBusy(busy: boolean, label?: string): void {

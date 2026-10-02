@@ -8,11 +8,12 @@ The assistant connects three kinds of work that are normally separated:
 - implementation and tests in source code;
 - calculation, experimental comparison, parameter fitting, plots, and evidence.
 
-The current plugin version is **0.6.0**. It runs inside desktop Obsidian and calls the OpenAI Responses API with the user's own API key. Codex is not required.
+The current plugin version is **0.7.0**. It runs inside desktop Obsidian and calls the OpenAI Responses API with the user's own API key. Codex is not required.
 
 ## What it can do
 
 - Build an engineering workflow from a short analysis or design objective.
+- Give every executable model stage explicit input and output contracts, acceptance checks, and labelled downstream handoffs on the primary Canvas.
 - Add or modify the relevant branch of an existing workflow without reading every note.
 - Read selected source files and map models, equations, functions, tests, and result-generation code to exact workflow records.
 - Propose and apply reviewed Python and engineering-data changes inside configured code roots.
@@ -110,11 +111,11 @@ Add one or more absolute or vault-relative paths under **External code roots for
 
 For a portable download, keep code beside the vault and use a relative path such as `..\seal_calculations_2`. Avoid distributing machine-specific paths such as `D:\...`.
 
-The configured code-root directory must already exist. The plugin can create files within an existing approved root, but version 0.6.0 does not create a new external repository directory automatically.
+The configured code-root directory must already exist. The plugin can create files within an existing approved root, but version 0.7.0 does not create a new external repository directory automatically.
 
 ## Workflow and scientific visualization
 
-- Obsidian Canvas visualizes the engineering stages, decisions, reasons, evidence, code, releases, iterations, and approvals.
+- Obsidian Canvas visualizes the engineering stages, consolidated model inputs above each executable stage, outputs below it, labelled cross-stage data handoffs, decisions, reasons, evidence, code, releases, iterations, and approvals.
 - Python generates scientific plots and result files under the engineering code root.
 - Workflow records link to exact source-code lines and generated evidence. A dedicated automatic plot-copy/embed step is not yet included; plots remain result artifacts unless the generated workflow note explicitly links or embeds an accessible file.
 

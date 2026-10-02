@@ -4,7 +4,8 @@
   flex-direction: column;
   gap: 12px;
   padding: 14px;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .workflow-ai-header {
@@ -133,6 +134,8 @@
   padding: 9px 10px;
   border-radius: var(--radius-m);
   background: var(--background-secondary);
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .workflow-ai-message.is-user {
@@ -145,22 +148,70 @@
   border: 1px solid var(--color-red);
 }
 
+.workflow-ai-message-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+
 .workflow-ai-message-role {
+  flex: 1 1 auto;
   font-size: var(--font-ui-smaller);
   font-weight: var(--font-semibold);
-  margin-bottom: 3px;
+}
+
+.workflow-ai-message-copy {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  min-height: 24px;
+  font-size: var(--font-ui-smaller);
 }
 
 .workflow-ai-message-text {
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  cursor: text;
+  user-select: text !important;
+  -webkit-user-select: text !important;
 }
 
-.workflow-ai-plan {
-  max-height: 45%;
-  overflow-y: auto;
+.workflow-ai-plan:empty {
+  display: none;
 }
 
-.workflow-ai-plan-card h4,
+.workflow-ai-plan:not(:empty) {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  width: 100%;
+  height: clamp(260px, 46vh, 560px);
+  min-height: 180px;
+  max-height: 75vh;
+  overflow: auto;
+  resize: vertical;
+  padding-right: 4px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.workflow-ai-plan-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.workflow-ai-plan-header h4 {
+  margin: 0;
+}
+
+.workflow-ai-resize-hint {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  text-align: right;
+}
+
 .workflow-ai-plan-card p {
   margin-top: 0;
 }
@@ -178,12 +229,21 @@
 }
 
 .workflow-ai-operation-list pre {
-  max-height: 220px;
+  box-sizing: border-box;
+  width: 100%;
+  height: 260px;
+  min-height: 100px;
+  max-height: 70vh;
   overflow: auto;
+  resize: vertical;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   background: var(--background-primary);
   padding: 8px;
   border-radius: var(--radius-s);
+  cursor: text;
+  user-select: text !important;
+  -webkit-user-select: text !important;
 }
 
 .workflow-ai-plan-actions,

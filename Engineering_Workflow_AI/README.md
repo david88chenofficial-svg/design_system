@@ -2,7 +2,7 @@
 
 This folder is the permanent Engineering Workflow AI workspace, its project collection, and the complete plugin source package. Open this one vault for every project; do not copy the plugin into individual project folders.
 
-Version **0.6.0** connects the Obsidian reasoning workflow to real engineering code and analysis results. It can build or evolve workflows, map exact code locations, propose reviewed source/data edits, run approved Python analyses, capture metrics and generated artifacts, and synchronize the observed results into workflow evidence. Codex is not required.
+Version **0.7.0** connects the Obsidian reasoning workflow to real engineering code and analysis results. It can build or evolve workflows, create explicit model-stage input/output contracts and handoffs, map exact code locations, propose reviewed source/data edits, run approved Python analyses, capture metrics and generated artifacts, and synchronize the observed results into workflow evidence. Codex is not required.
 
 See [[Engineering Workflow AI - Plugin Guide]] for the user workflow and [[Code Traceability Contract]] for the code/Obsidian synchronization rules.
 
@@ -32,6 +32,8 @@ The LLM does not independently access the filesystem. The plugin owns file disco
 7. Review the generated plan. Workflow or engineering files change only after the corresponding Apply action is selected.
 
 The starting request does not need to prescribe an engineering process. A request such as “Build a tool to analyse seal performance and ultimately design a seal for specified working conditions and geometric constraints” is sufficient. The internal policy derives the necessary workflow while leaving missing engineering facts open.
+
+For every executable model stage, the planner now creates a verification-ready contract in the stage note with **Inputs**, **Model or method**, **Outputs**, and **Acceptance and verification** sections. On the primary Canvas, one consolidated input card sits above the stage and one consolidated output card below it. A labelled output-to-input edge identifies only the quantities transferred to a downstream model. Additional geometry, material, boundary-condition and configuration inputs remain distinct from upstream-produced values. Missing units, mappings, tolerances and physical facts remain `TBD` rather than being invented.
 
 The API key is stored through Obsidian `SecretStorage`, not in this repository or the plugin's `data.json` file.
 

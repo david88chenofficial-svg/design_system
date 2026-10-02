@@ -2,7 +2,7 @@
 
 This folder is the permanent Engineering Workflow AI workspace, its project collection, and the complete plugin source package. Open this one vault for every project; do not copy the plugin into individual project folders.
 
-Version **0.7.0** connects the Obsidian reasoning workflow to real engineering code and analysis results. It can build or evolve workflows, create explicit model-stage input/output contracts and handoffs, map exact code locations, propose reviewed source/data edits, run approved Python analyses, capture metrics and generated artifacts, and synchronize the observed results into workflow evidence. Codex is not required.
+Version **0.8.0** makes the Obsidian workflow the planner for staged engineering implementation. It can build or evolve workflows, attach diagrams or equation images to planning requests, expose execution-ready model boxes, order them by data dependency, generate reviewed code through a Coder role, and let an independent Verifier choose inputs, control execution, and judge the evidence. Codex and the MIMI runtime are not required.
 
 See [[Engineering Workflow AI - Plugin Guide]] for the user workflow and [[Code Traceability Contract]] for the code/Obsidian synchronization rules.
 
@@ -10,13 +10,14 @@ See [[Engineering Workflow AI - Plugin Guide]] for the user workflow and [[Code 
 
 ```text
 User request
-  → route the relevant workflow and code/data files
-  → ask the LLM for a structured change and run plan
-  → validate and preview every operation
-  → apply approved Markdown/Canvas or source/data changes
-  → run approved Python scripts and tests
-  → capture logs, metrics, fitted parameters and output files
-  → prepare the corresponding workflow/evidence update
+  → build or modify the Obsidian workflow and stage contracts
+  → select the stage boxes that require code
+  → order upstream producers before downstream consumers
+  → Coder proposes one stage and a standard JSON runner
+  → validate, preview, and apply approved code without running it
+  → Verifier independently prepares example inputs and checks
+  → run those cases directly, capture JSON results, and judge them
+  → pass advances the queue; fail/inconclusive returns feedback or stops at the configured limit
 ```
 
 The LLM does not independently access the filesystem. The plugin owns file discovery, bounded reading, path and hash validation, local writing, execution, result capture, and exact code-link generation.
@@ -30,10 +31,19 @@ The LLM does not independently access the filesystem. The plugin owns file disco
 5. Paste an OpenAI API key into the field at the top of the panel and select **Save key** when required.
 6. Choose a mode, describe the engineering outcome or change, and select **Send**.
 7. Review the generated plan. Workflow or engineering files change only after the corresponding Apply action is selected.
+8. Once the workflow is applied, select executable stages in the code panel and choose **Generate/modify selected**, or choose **Generate/modify all unresolved**.
+
+Use **Add reference images** before sending when the workflow depends on a diagram, photographed equation, sketch, or annotated geometry. Up to four PNG, JPEG, WebP, or GIF images can accompany a request. On send, they are stored under the selected project's `Reference Images/` folder with content-hashed filenames; planning requests link the exact saved assets from the relevant Markdown stage or interface notes.
+
+Use **Abort** while **Working…** is shown to cancel the active AI or verification session. A running Python verifier is terminated, late AI responses are ignored, and the active stage queue is cleared. File changes that completed before cancellation may remain and should be reviewed before retrying.
+
+Use **Agent activity** to open a movable, resizable progress console. It shows concise Router, Planner, Coder, Verifier, and Runner events; stage attempts; proposed or changed files; verification-case results; elapsed API time; and exact input/output/total token usage returned for each API request. The console can copy or clear its session log and also exposes the active-session **Abort** control. It never displays the API key, complete prompts, or hidden model reasoning.
+
+The primary Canvas is intentionally schematic: it normally uses two to four large horizontal backbone boxes, targeting about three for a simple coupled analysis. Every visible box is a Canvas file node backed by a real Markdown note, so it can be opened fully. Each executable model has one smaller code-input file above and one code-output file below. Governance, evidence, qualification, release, and interface-decision records do not obscure the main flow.
 
 The starting request does not need to prescribe an engineering process. A request such as “Build a tool to analyse seal performance and ultimately design a seal for specified working conditions and geometric constraints” is sufficient. The internal policy derives the necessary workflow while leaving missing engineering facts open.
 
-For every executable model stage, the planner now creates a verification-ready contract in the stage note with **Inputs**, **Model or method**, **Outputs**, and **Acceptance and verification** sections. On the primary Canvas, one consolidated input card sits above the stage and one consolidated output card below it. A labelled output-to-input edge identifies only the quantities transferred to a downstream model. Additional geometry, material, boundary-condition and configuration inputs remain distinct from upstream-produced values. Missing units, mappings, tolerances and physical facts remain `TBD` rather than being invented.
+For every executable model stage, the planner creates a concise physical/theoretical stage brief plus one linked code-input contract and one linked code-output contract. The stage brief preserves the governing equations, assumptions and applicability, then records only the numerical-method preference and concise verification intent needed by a later implementation planner. Runtime dimensions, working conditions, material properties and solver controls live in the input contract; calculated fields and consumers live in the output contract. Missing operating values can remain user-supplied/TBD, while missing governing physics or undefined mappings are explicit model-definition gaps.
 
 The API key is stored through Obsidian `SecretStorage`, not in this repository or the plugin's `data.json` file.
 
@@ -72,11 +82,29 @@ The workflow project name and repository name do not need to match. The configur
 
 ## Write and run engineering code
 
-Choose **Code + workflow**, or leave the mode on **Auto** and make the implementation intent explicit. For example:
+### Staged Coder → Verifier workflow
+
+The preferred model-box path begins under **Executable workflow stages**. A note becomes execution-ready when it is a `stage` record and contains **Inputs**, **Model or method**, **Outputs**, and **Acceptance and verification** headings. Select boxes individually or process all unresolved boxes. The plugin includes unresolved upstream dependencies automatically and executes the queue in Canvas dependency order.
+
+For each stage:
+
+1. The Coder receives that approved contract, verified upstream records, and the smallest relevant source context.
+2. It proposes exact code operations plus a Python runner with `--input <json-path> --output <json-path>`. The user previews and approves the code. The Coder cannot request or trigger execution.
+3. The Verifier reads the applied implementation and independently prepares up to six concrete JSON cases and checks.
+4. The controller writes those inputs under `verification_results/<stage>/attempt_<n>/`, invokes the runner directly without a shell, and captures stdout, stderr, exit status, output JSON, and hashes.
+5. The Verifier judges the evidence as `pass`, `fail`, or `inconclusive`. A pass advances to the next box. A failure is returned to the Coder for another reviewed proposal until **Max attempts** is reached.
+
+Verification state is stored per project. A changed stage contract, changed implementation file, failed or missing upstream result, or newer upstream verification marks the affected stage stale. Passing these checks is implementation verification, not physical validation or design approval.
+
+If no code root exists, staged generation creates `<selected project>/code`. Existing external repositories still need to be configured under **Settings → Engineering Workflow AI**.
+
+### Manual code + workflow
+
+Choose **Manual code + workflow**, or leave the mode on **Auto** and make the implementation intent explicit, for one-off analysis that is not driven by executable stage boxes. For example:
 
 > Implement the supplied seal model in the existing Python comparison tool, add it to the shared model comparison, run the tests and comparison plot, and update the relevant model-qualification records.
 
-The plugin routes a bounded set of relevant source/data files, then proposes exact hash-checked source edits, new data files, and Python runs. Review the replacements and select **Apply code, run, and sync workflow**. The plugin writes the approved files, invokes the configured Python executable directly without a shell, checks declared output files, and prepares a second review for the corresponding Obsidian implementation/evidence update.
+The plugin routes a bounded set of relevant source/data files, then proposes exact hash-checked source edits, new data files, and Python runs. Review the replacements and select **Apply code, run, and sync workflow**. This older manual path applies its reviewed run plan directly; use the staged path above when the Verifier must own the test inputs and execution sequence.
 
 For experiment work, include the test configuration, column meanings, units, data points, uncertainties when available, and whether the dataset is for calibration or independent validation. The coding agent can create CSV data, comparison/fitting code, plots and metric tables. It must leave missing equations, units, parameters, acceptance thresholds and physical conclusions open instead of inventing them.
 
@@ -123,7 +151,9 @@ Supported roles include `candidate-model`, `implementation`, `comparison`, `veri
 - The request goes directly from Obsidian to `https://api.openai.com/v1/responses` using the saved key.
 - Existing projects use graph-guided retrieval. The plugin first builds a local metadata index from project-relative paths, frontmatter, headings and links, and reads the primary Canvas as the high-level map.
 - A small routing request chooses the relevant stage or branch. A second planning request receives only the selected Markdown/Canvas files and their graph neighbours—not the whole project.
-- **Code + workflow** first sends a filename/size manifest to select at most eight relevant engineering files, then sends only those selected file contents plus the focused workflow branch for code planning. The default source/data context cap is 120,000 characters.
+- **Manual code + workflow** first sends a filename/size manifest to select at most eight relevant engineering files, then sends only those selected file contents plus the focused workflow branch for code planning. The default source/data context cap is 120,000 characters.
+- Staged generation sends one approved stage contract and a bounded source selection to the Coder. After approval, the Verifier receives the stage contract, applied implementation context, and later only the locally captured case evidence needed for judgment.
+- Reference-image pixels are included only in the planning or manual code request to which the user attaches them. The plugin also saves those user-selected images under the active project's `Reference Images/` folder so generated Markdown can retain stable local embeds.
 - **Build/update code links** locally scans configured source roots and sends one bounded catalog of relevant symbols/annotated regions plus workflow IDs, paths, types, statuses and headings. Full workflow-note content and the entire code repository are not uploaded for this mapping step.
 - The defaults cap focused planning context at 12 files and 40,000 characters. The routing map has a separate 24,000-character cap. Both limits can prevent large projects from being sent wholesale.
 - Blank projects skip routing because there is no existing graph to inspect.
@@ -167,7 +197,8 @@ The compiled `main.js` remains in the same plugin folder. There is no separate i
 - Desktop Obsidian 1.11.4 or later.
 - OpenAI Responses API using the user's API key.
 - Workflow mode writes are limited to Markdown and Canvas inside the selected project.
-- Code + workflow mode can create or edit reviewed engineering source/data files inside configured roots, and can run declared Python scripts/tests directly without a shell.
+- Staged mode can create or edit reviewed engineering source/data files inside configured roots; Coder approval never executes them, and only Verifier-authored cases are run directly without a shell.
+- Manual code + workflow remains available for reviewed one-off source/data edits and declared Python runs.
 - No deletion, rename, hidden-path write, inline Python, interactive Python, package installation, arbitrary shell execution, or write outside the selected project/configured engineering roots.
 - AI context, writes, change journals and structural validation are scoped to the selected project.
 - The panel shows the exact context route and files used before displaying the proposed plan.

@@ -83,7 +83,11 @@ export async function buildProjectIndex(
       id: metadataText(frontmatter?.id),
       type: metadataText(frontmatter?.type),
       status: metadataText(frontmatter?.status),
-      headings: (cache?.headings ?? []).map((heading) => heading.heading).slice(0, 8),
+      // Keep the complete heading list. Executable stage contracts deliberately
+      // place their Inputs/Outputs/Acceptance sections after the physical-model
+      // discussion, so truncating metadata here can make a valid stage vanish
+      // from the code-generation UI.
+      headings: (cache?.headings ?? []).map((heading) => heading.heading),
       outbound: []
     };
   });

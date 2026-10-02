@@ -1,6 +1,6 @@
 {
   "name": "engineering-workflow-ai",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "description": "Review-first engineering agent for Obsidian workflows, code, data, and Python analysis",
   "type": "module",

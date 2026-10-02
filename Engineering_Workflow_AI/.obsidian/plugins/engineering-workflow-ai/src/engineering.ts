@@ -32,7 +32,7 @@ const TEXT_OUTPUT_EXTENSIONS = new Set([".csv", ".tsv", ".json", ".txt", ".log",
 const EXCLUDED_DIRECTORIES = new Set([
   ".git", ".hg", ".svn", ".idea", ".vscode", ".obsidian", "node_modules",
   ".venv", "venv", "env", "dist", "build", "coverage", "__pycache__",
-  ".pytest_cache", ".mypy_cache", ".engineering-workflow-ai"
+  ".pytest_cache", ".mypy_cache", ".engineering-workflow-ai", "verification_results"
 ]);
 const SHA256_RE = /^[a-f0-9]{64}$/i;
 const MAX_MANIFEST_FILES = 500;
@@ -163,6 +163,9 @@ export function validateEngineeringCodePlan(
       throw new Error(`Code operation ${operation.operation_id} targets an unknown root.`);
     }
     operation.path = canonicalRelativePath(operation.path, WRITABLE_EXTENSIONS);
+    if (operation.path.toLowerCase().startsWith("verification_results/")) {
+      throw new Error(`Code operation ${operation.operation_id} cannot edit controller-owned verification evidence.`);
+    }
     if (typeof operation.content !== "string" || typeof operation.search !== "string" || typeof operation.reason !== "string") {
       throw new Error(`Code operation ${operation.operation_id} has invalid text fields.`);
     }
@@ -199,8 +202,10 @@ export function validateEngineeringCodePlan(
 export async function applyEngineeringCodePlan(
   plan: EngineeringCodePlan,
   context: EngineeringCodeContext,
-  pythonExecutable: string
+  pythonExecutable: string,
+  signal?: AbortSignal
 ): Promise<EngineeringApplyReport> {
+  signal?.throwIfAborted();
   validateEngineeringCodePlan(plan, context);
   const originalByPath = new Map<string, { absolutePath: string; existed: boolean; content: string; eol: string }>();
   const pendingByPath = new Map<string, { absolutePath: string; content: string; rootIndex: number; relativePath: string }>();
@@ -248,9 +253,11 @@ export async function applyEngineeringCodePlan(
   const written: string[] = [];
   try {
     for (const pending of pendingByPath.values()) {
+      signal?.throwIfAborted();
       await fs.mkdir(path.dirname(pending.absolutePath), { recursive: true });
       await fs.writeFile(pending.absolutePath, pending.content, "utf8");
       written.push(`${pending.rootIndex}:${pending.relativePath}`);
+      signal?.throwIfAborted();
     }
   } catch (error) {
     for (const key of written.reverse()) {
@@ -270,7 +277,8 @@ export async function applyEngineeringCodePlan(
   }
   const runs: AnalysisRunResult[] = [];
   for (const run of plan.runs) {
-    runs.push(await executeAnalysisRun(run, context.roots, pythonExecutable));
+    signal?.throwIfAborted();
+    runs.push(await executeAnalysisRun(run, context.roots, pythonExecutable, signal));
   }
   return { created, modified, runs };
 }
@@ -328,14 +336,16 @@ function validateRunSpec(run: AnalysisRunSpec, roots: string[], runIds: Set<stri
 async function executeAnalysisRun(
   run: AnalysisRunSpec,
   roots: string[],
-  pythonExecutable: string
+  pythonExecutable: string,
+  signal?: AbortSignal
 ): Promise<AnalysisRunResult> {
+  signal?.throwIfAborted();
   const root = roots[run.root_index];
   const result = await new Promise<{ success: boolean; exitCode: number | null; stdout: string; stderr: string }>((resolve) => {
     execFile(
       pythonExecutable,
       run.args,
-      { cwd: root, timeout: 120_000, maxBuffer: 2_000_000, windowsHide: true },
+      { cwd: root, timeout: 120_000, maxBuffer: 2_000_000, windowsHide: true, signal },
       (error, stdout, stderr) => {
         const code = error && "code" in error && typeof error.code === "number" ? error.code : error ? 1 : 0;
         resolve({
@@ -347,6 +357,7 @@ async function executeAnalysisRun(
       }
     );
   });
+  signal?.throwIfAborted();
   const outputs: AnalysisOutputArtifact[] = [];
   for (const relativeOutput of run.expected_outputs) {
     const relativePath = canonicalRelativePath(relativeOutput, OUTPUT_EXTENSIONS);

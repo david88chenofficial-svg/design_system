@@ -21,7 +21,8 @@ const CODE_EXTENSIONS = new Set([
 ]);
 const EXCLUDED_DIRECTORIES = new Set([
   ".git", ".hg", ".svn", ".idea", ".vscode", "node_modules", ".venv", "venv",
-  "env", "dist", "build", "coverage", "__pycache__", ".pytest_cache", ".mypy_cache"
+  "env", "dist", "build", "coverage", "__pycache__", ".pytest_cache", ".mypy_cache",
+  "verification_results"
 ]);
 const MAX_FILES = 500;
 const MAX_FILE_BYTES = 1_000_000;
@@ -84,6 +85,26 @@ export async function resolveCodeRoots(
     }
   }
   return roots;
+}
+
+export async function ensureProjectCodeRoot(
+  vaultBasePath: string,
+  projectPath: string
+): Promise<string> {
+  const vaultRoot = await fs.realpath(path.resolve(vaultBasePath));
+  const projectRoot = await fs.realpath(path.resolve(vaultRoot, projectPath));
+  assertPathInside(vaultRoot, projectRoot, "The selected project resolves outside the current Obsidian vault.");
+  const target = path.resolve(projectRoot, "code");
+  assertPathInside(vaultRoot, target, "The project code root would escape the current Obsidian vault.");
+  await fs.mkdir(target, { recursive: true });
+  const real = await fs.realpath(target);
+  assertPathInside(vaultRoot, real, "The resolved project code root escapes the current Obsidian vault.");
+  return real;
+}
+
+function assertPathInside(root: string, target: string, message: string): void {
+  const relative = path.relative(path.resolve(root), path.resolve(target));
+  if (relative.startsWith("..") || path.isAbsolute(relative)) throw new Error(message);
 }
 
 export async function scanCodeChanges(

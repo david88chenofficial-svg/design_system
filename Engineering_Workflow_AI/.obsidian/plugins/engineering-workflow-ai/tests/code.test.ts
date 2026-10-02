@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { parseCodeSymbols, resolveCodeRoots, scanCodeChanges, scanCodeInventory } from "../src/code";
+import { ensureProjectCodeRoot, parseCodeSymbols, resolveCodeRoots, scanCodeChanges, scanCodeInventory } from "../src/code";
 
 const temporaryDirectories: string[] = [];
 
@@ -78,6 +78,19 @@ describe("code traceability", () => {
     expect(report.filesScanned).toBe(1);
     expect(report.changes[0].path).toBe("solver.ts");
     expect(report.changes[0].symbol).toBe("(file-level)");
+  });
+
+  it("creates a project-local code root and rejects a project outside the vault", async () => {
+    const vault = await temporaryDirectory();
+    const project = path.join(vault, "Projects", "Example");
+    await fs.mkdir(project, { recursive: true });
+
+    expect(await ensureProjectCodeRoot(vault, "Projects/Example"))
+      .toBe(await fs.realpath(path.join(project, "code")));
+
+    const outside = await temporaryDirectory();
+    const outsideRelative = path.relative(vault, outside);
+    await expect(ensureProjectCodeRoot(vault, outsideRelative)).rejects.toThrow(/outside/);
   });
 
   it("captures exact Python class and method ranges with structured trace metadata", () => {

@@ -1,4 +1,5 @@
 import { requestUrl } from "obsidian";
+import { parseAgentTokenUsage } from "./activity";
 import {
   CHANGE_PLAN_SCHEMA,
   CODE_IMPACT_POLICY,
@@ -12,10 +13,17 @@ import {
   ENGINEERING_CONTEXT_ROUTER_POLICY,
   ENGINEERING_RESULT_POLICY,
   ENGINEERING_WORKFLOW_POLICY,
+  STAGE_CODE_PLAN_SCHEMA,
+  STAGE_CODER_POLICY,
+  STAGE_VERIFICATION_PLAN_SCHEMA,
+  STAGE_VERIFICATION_VERDICT_SCHEMA,
+  STAGE_VERIFIER_JUDGE_POLICY,
+  STAGE_VERIFIER_PREPARE_POLICY,
   modeInstruction
 } from "./prompts";
 import { validateChangePlan } from "./safety";
 import type {
+  AgentActivityContext,
   ChatMessage,
   EngineeringCodeContext,
   EngineeringCodePlan,
@@ -26,13 +34,24 @@ import type {
   CodeTraceRelationship,
   CodeTraceResponse,
   ContextRoute,
+  ExecutableStage,
   PluginSettings,
   ProjectIndex,
+  ReferenceImage,
+  StageCodePlan,
+  StageVerificationPlan,
+  StageVerificationVerdict,
   VaultChangePlan,
   VaultContext,
   WorkflowMode
 } from "./types";
 import { validateEngineeringCodePlan } from "./engineering";
+import { referenceImagePromptLabel } from "./reference-images";
+import {
+  validateStageCodePlan,
+  validateStageVerificationPlan,
+  validateStageVerificationVerdict
+} from "./stage-execution";
 
 interface ResponsesPayload {
   output_text?: string;
@@ -42,6 +61,7 @@ interface ResponsesPayload {
   }>;
   error?: { message?: string };
   status?: string;
+  usage?: unknown;
 }
 
 export async function requestContextRoute(
@@ -50,7 +70,8 @@ export async function requestContextRoute(
   mode: WorkflowMode,
   userRequest: string,
   index: ProjectIndex,
-  history: ChatMessage[]
+  history: ChatMessage[],
+  activity?: AgentActivityContext
 ): Promise<ContextRoute> {
   const recentHistory = history
     .slice(-4)
@@ -66,35 +87,17 @@ export async function requestContextRoute(
     .filter(Boolean)
     .join("\n\n---\n\n");
 
-  const response = await requestUrl({
-    url: "https://api.openai.com/v1/responses",
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model: settings.model,
-      store: false,
-      instructions: CONTEXT_ROUTER_POLICY,
-      input,
-      max_output_tokens: 1_500,
-      text: {
-        format: {
-          type: "json_schema",
-          name: "engineering_context_route",
-          strict: true,
-          schema: CONTEXT_ROUTE_SCHEMA
-        }
-      }
-    }),
-    throw: false
-  });
-
-  const payload = response.json as ResponsesPayload;
-  if (response.status >= 400) {
-    throw new Error(payload.error?.message ?? `OpenAI routing request failed with status ${response.status}.`);
-  }
+  const payload = await requestResponsePayload(
+    apiKey,
+    settings,
+    CONTEXT_ROUTER_POLICY,
+    input,
+    1_500,
+    "engineering_context_route",
+    CONTEXT_ROUTE_SCHEMA,
+    "OpenAI routing request",
+    activity
+  );
   let route: ContextRoute;
   try {
     route = JSON.parse(extractResponseText(payload)) as ContextRoute;
@@ -114,7 +117,9 @@ export async function requestChangePlan(
   mode: WorkflowMode,
   userRequest: string,
   context: VaultContext,
-  history: ChatMessage[]
+  history: ChatMessage[],
+  images: ReferenceImage[] = [],
+  activity?: AgentActivityContext
 ): Promise<VaultChangePlan> {
   const recentHistory = history
     .slice(-6)
@@ -130,35 +135,17 @@ export async function requestChangePlan(
     .filter(Boolean)
     .join("\n\n---\n\n");
 
-  const response = await requestUrl({
-    url: "https://api.openai.com/v1/responses",
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model: settings.model,
-      store: false,
-      instructions: ENGINEERING_WORKFLOW_POLICY,
-      input,
-      max_output_tokens: 12_000,
-      text: {
-        format: {
-          type: "json_schema",
-          name: "engineering_vault_change_plan",
-          strict: true,
-          schema: CHANGE_PLAN_SCHEMA
-        }
-      }
-    }),
-    throw: false
-  });
-
-  const payload = response.json as ResponsesPayload;
-  if (response.status >= 400) {
-    throw new Error(payload.error?.message ?? `OpenAI request failed with status ${response.status}.`);
-  }
+  const payload = await requestResponsePayload(
+    apiKey,
+    settings,
+    ENGINEERING_WORKFLOW_POLICY,
+    responseInput(input, images),
+    12_000,
+    "engineering_vault_change_plan",
+    CHANGE_PLAN_SCHEMA,
+    "OpenAI workflow-planning request",
+    activity
+  );
   const outputText = extractResponseText(payload);
   let plan: VaultChangePlan;
   try {
@@ -174,7 +161,8 @@ export async function requestCodeImpactPlan(
   apiKey: string,
   settings: PluginSettings,
   context: VaultContext,
-  codeReport: CodeScanReport
+  codeReport: CodeScanReport,
+  activity?: AgentActivityContext
 ): Promise<VaultChangePlan> {
   const input = [
     "Mode: code impact review. Propose the smallest workflow update needed to preserve implementation traceability.",
@@ -183,35 +171,17 @@ export async function requestCodeImpactPlan(
     codeReport.serialized
   ].join("\n\n---\n\n");
 
-  const response = await requestUrl({
-    url: "https://api.openai.com/v1/responses",
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model: settings.model,
-      store: false,
-      instructions: `${ENGINEERING_WORKFLOW_POLICY}\n\n${CODE_IMPACT_POLICY}`,
-      input,
-      max_output_tokens: 12_000,
-      text: {
-        format: {
-          type: "json_schema",
-          name: "engineering_code_impact_plan",
-          strict: true,
-          schema: CHANGE_PLAN_SCHEMA
-        }
-      }
-    }),
-    throw: false
-  });
-
-  const payload = response.json as ResponsesPayload;
-  if (response.status >= 400) {
-    throw new Error(payload.error?.message ?? `OpenAI code-review request failed with status ${response.status}.`);
-  }
+  const payload = await requestResponsePayload(
+    apiKey,
+    settings,
+    `${ENGINEERING_WORKFLOW_POLICY}\n\n${CODE_IMPACT_POLICY}`,
+    input,
+    12_000,
+    "engineering_code_impact_plan",
+    CHANGE_PLAN_SCHEMA,
+    "OpenAI code-review request",
+    activity
+  );
   let plan: VaultChangePlan;
   try {
     plan = JSON.parse(extractResponseText(payload)) as VaultChangePlan;
@@ -226,7 +196,8 @@ export async function requestCodeTraceMappings(
   apiKey: string,
   settings: PluginSettings,
   index: ProjectIndex,
-  catalog: CodeTraceCatalog
+  catalog: CodeTraceCatalog,
+  activity?: AgentActivityContext
 ): Promise<CodeTraceResponse> {
   const workflowRecords = index.entries
     .filter((entry) => entry.extension === "md" && entry.id)
@@ -244,35 +215,17 @@ export async function requestCodeTraceMappings(
     catalog.serialized
   ].join("\n\n---\n\n");
 
-  const response = await requestUrl({
-    url: "https://api.openai.com/v1/responses",
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model: settings.model,
-      store: false,
-      instructions: CODE_TRACE_POLICY,
-      input,
-      max_output_tokens: 12_000,
-      text: {
-        format: {
-          type: "json_schema",
-          name: "engineering_code_trace_mappings",
-          strict: true,
-          schema: CODE_TRACE_SCHEMA
-        }
-      }
-    }),
-    throw: false
-  });
-
-  const payload = response.json as ResponsesPayload;
-  if (response.status >= 400) {
-    throw new Error(payload.error?.message ?? `OpenAI code-trace request failed with status ${response.status}.`);
-  }
+  const payload = await requestResponsePayload(
+    apiKey,
+    settings,
+    CODE_TRACE_POLICY,
+    input,
+    12_000,
+    "engineering_code_trace_mappings",
+    CODE_TRACE_SCHEMA,
+    "OpenAI code-trace request",
+    activity
+  );
   let proposed: CodeTraceResponse;
   try {
     proposed = JSON.parse(extractResponseText(payload)) as CodeTraceResponse;
@@ -336,7 +289,8 @@ export async function requestEngineeringContextRoute(
   settings: PluginSettings,
   userRequest: string,
   manifest: EngineeringFileManifest,
-  history: ChatMessage[]
+  history: ChatMessage[],
+  activity?: AgentActivityContext
 ): Promise<EngineeringContextRoute> {
   const recentHistory = history
     .slice(-4)
@@ -347,31 +301,17 @@ export async function requestEngineeringContextRoute(
     `CURRENT USER REQUEST\n${userRequest}`,
     manifest.serialized
   ].filter(Boolean).join("\n\n---\n\n");
-  const response = await requestUrl({
-    url: "https://api.openai.com/v1/responses",
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: settings.model,
-      store: false,
-      instructions: ENGINEERING_CONTEXT_ROUTER_POLICY,
-      input,
-      max_output_tokens: 1_500,
-      text: {
-        format: {
-          type: "json_schema",
-          name: "engineering_code_context_route",
-          strict: true,
-          schema: ENGINEERING_CONTEXT_ROUTE_SCHEMA
-        }
-      }
-    }),
-    throw: false
-  });
-  const payload = response.json as ResponsesPayload;
-  if (response.status >= 400) {
-    throw new Error(payload.error?.message ?? `OpenAI code-routing request failed with status ${response.status}.`);
-  }
+  const payload = await requestResponsePayload(
+    apiKey,
+    settings,
+    ENGINEERING_CONTEXT_ROUTER_POLICY,
+    input,
+    1_500,
+    "engineering_code_context_route",
+    ENGINEERING_CONTEXT_ROUTE_SCHEMA,
+    "OpenAI code-routing request",
+    activity
+  );
   let route: EngineeringContextRoute;
   try {
     route = JSON.parse(extractResponseText(payload)) as EngineeringContextRoute;
@@ -392,7 +332,9 @@ export async function requestEngineeringCodePlan(
   projectPath: string,
   workflowContext: VaultContext,
   codeContext: EngineeringCodeContext,
-  history: ChatMessage[]
+  history: ChatMessage[],
+  images: ReferenceImage[] = [],
+  activity?: AgentActivityContext
 ): Promise<EngineeringCodePlan> {
   const recentHistory = history
     .slice(-6)
@@ -408,31 +350,17 @@ export async function requestEngineeringCodePlan(
       ? "CONTEXT LIMIT NOTICE\nSome requested engineering context was unavailable or truncated. Do not replace a truncated file."
       : "CONTEXT LIMIT NOTICE\nAll selected engineering files were supplied in full."
   ].filter(Boolean).join("\n\n---\n\n");
-  const response = await requestUrl({
-    url: "https://api.openai.com/v1/responses",
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: settings.model,
-      store: false,
-      instructions: ENGINEERING_CODE_POLICY,
-      input,
-      max_output_tokens: 24_000,
-      text: {
-        format: {
-          type: "json_schema",
-          name: "engineering_code_change_plan",
-          strict: true,
-          schema: ENGINEERING_CODE_PLAN_SCHEMA
-        }
-      }
-    }),
-    throw: false
-  });
-  const payload = response.json as ResponsesPayload;
-  if (response.status >= 400) {
-    throw new Error(payload.error?.message ?? `OpenAI engineering-code request failed with status ${response.status}.`);
-  }
+  const payload = await requestResponsePayload(
+    apiKey,
+    settings,
+    ENGINEERING_CODE_POLICY,
+    responseInput(input, images),
+    24_000,
+    "engineering_code_change_plan",
+    ENGINEERING_CODE_PLAN_SCHEMA,
+    "OpenAI engineering-code request",
+    activity
+  );
   let plan: EngineeringCodePlan;
   try {
     plan = JSON.parse(extractResponseText(payload)) as EngineeringCodePlan;
@@ -443,13 +371,108 @@ export async function requestEngineeringCodePlan(
   return plan;
 }
 
+export async function requestStageCodePlan(
+  apiKey: string,
+  settings: PluginSettings,
+  stage: ExecutableStage,
+  projectPath: string,
+  codeContext: EngineeringCodeContext,
+  attempt: number,
+  verifierFeedback: string,
+  upstreamContext: string,
+  activity?: AgentActivityContext
+): Promise<StageCodePlan> {
+  const input = [
+    `SELECTED OBSIDIAN PROJECT\n${projectPath}`,
+    `STAGE ID\n${stage.id}`,
+    `STAGE ATTEMPT\n${attempt} of ${settings.maxStageAttempts}`,
+    `APPROVED STAGE CONTRACT\n${stage.contract}`,
+    upstreamContext ? `VERIFIED UPSTREAM CONTEXT\n${upstreamContext}` : "VERIFIED UPSTREAM CONTEXT\nNo executable upstream stage is required.",
+    verifierFeedback ? `VERIFIER FEEDBACK FROM THE PREVIOUS ATTEMPT\n${verifierFeedback}` : "",
+    `FULL ENGINEERING FILE CONTENT SELECTED FOR EDITING\n${codeContext.serialized || "(No existing engineering files were selected; create the minimum coherent stage implementation.)"}`,
+    codeContext.truncated
+      ? "CONTEXT LIMIT NOTICE\nSome requested engineering context was unavailable or truncated. Do not replace a truncated file."
+      : "CONTEXT LIMIT NOTICE\nAll selected engineering files were supplied in full."
+  ].filter(Boolean).join("\n\n---\n\n");
+  const plan = await requestStructuredResponse<StageCodePlan>(
+    apiKey,
+    settings,
+    STAGE_CODER_POLICY,
+    input,
+    "workflow_stage_code_plan",
+    STAGE_CODE_PLAN_SCHEMA,
+    24_000,
+    activity
+  );
+  validateStageCodePlan(plan, codeContext, stage.id);
+  return plan;
+}
+
+export async function requestStageVerificationPlan(
+  apiKey: string,
+  settings: PluginSettings,
+  stage: ExecutableStage,
+  runner: StageCodePlan["runner"],
+  codeContext: EngineeringCodeContext,
+  upstreamContext: string,
+  activity?: AgentActivityContext
+): Promise<StageVerificationPlan> {
+  if (!runner) throw new Error("The Coder did not provide a runner for verification.");
+  const input = [
+    `STAGE ID\n${stage.id}`,
+    `APPROVED STAGE CONTRACT\n${stage.contract}`,
+    upstreamContext ? `VERIFIED UPSTREAM CONTEXT\n${upstreamContext}` : "",
+    `STANDARD RUNNER\nROOT ${runner.root_index}: ${runner.path}\nThe controller will invoke this runner with --input <json-path> --output <json-path>.`,
+    `IMPLEMENTATION CONTEXT\n${codeContext.serialized}`
+  ].filter(Boolean).join("\n\n---\n\n");
+  const plan = await requestStructuredResponse<StageVerificationPlan>(
+    apiKey,
+    settings,
+    STAGE_VERIFIER_PREPARE_POLICY,
+    input,
+    "workflow_stage_verification_plan",
+    STAGE_VERIFICATION_PLAN_SCHEMA,
+    10_000,
+    activity
+  );
+  validateStageVerificationPlan(plan, stage.id);
+  return plan;
+}
+
+export async function requestStageVerificationVerdict(
+  apiKey: string,
+  settings: PluginSettings,
+  stage: ExecutableStage,
+  evidence: string,
+  activity?: AgentActivityContext
+): Promise<StageVerificationVerdict> {
+  const input = [
+    `STAGE ID\n${stage.id}`,
+    `APPROVED STAGE CONTRACT\n${stage.contract}`,
+    evidence
+  ].join("\n\n---\n\n");
+  const verdict = await requestStructuredResponse<StageVerificationVerdict>(
+    apiKey,
+    settings,
+    STAGE_VERIFIER_JUDGE_POLICY,
+    input,
+    "workflow_stage_verification_verdict",
+    STAGE_VERIFICATION_VERDICT_SCHEMA,
+    10_000,
+    activity
+  );
+  validateStageVerificationVerdict(verdict, stage.id);
+  return verdict;
+}
+
 export async function requestEngineeringResultPlan(
   apiKey: string,
   settings: PluginSettings,
   userRequest: string,
   context: VaultContext,
   appliedResult: string,
-  exactCodeArtifacts: string
+  exactCodeArtifacts: string,
+  activity?: AgentActivityContext
 ): Promise<VaultChangePlan> {
   const input = [
     "Mode: synchronize an applied engineering implementation and its actual run evidence.",
@@ -459,31 +482,17 @@ export async function requestEngineeringResultPlan(
     appliedResult,
     `EXACT POST-CHANGE CODE ARTIFACTS\n${exactCodeArtifacts}`
   ].join("\n\n---\n\n");
-  const response = await requestUrl({
-    url: "https://api.openai.com/v1/responses",
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: settings.model,
-      store: false,
-      instructions: `${ENGINEERING_WORKFLOW_POLICY}\n\n${ENGINEERING_RESULT_POLICY}`,
-      input,
-      max_output_tokens: 12_000,
-      text: {
-        format: {
-          type: "json_schema",
-          name: "engineering_result_workflow_plan",
-          strict: true,
-          schema: CHANGE_PLAN_SCHEMA
-        }
-      }
-    }),
-    throw: false
-  });
-  const payload = response.json as ResponsesPayload;
-  if (response.status >= 400) {
-    throw new Error(payload.error?.message ?? `OpenAI workflow-sync request failed with status ${response.status}.`);
-  }
+  const payload = await requestResponsePayload(
+    apiKey,
+    settings,
+    `${ENGINEERING_WORKFLOW_POLICY}\n\n${ENGINEERING_RESULT_POLICY}`,
+    input,
+    12_000,
+    "engineering_result_workflow_plan",
+    CHANGE_PLAN_SCHEMA,
+    "OpenAI workflow-sync request",
+    activity
+  );
   let plan: VaultChangePlan;
   try {
     plan = JSON.parse(extractResponseText(payload)) as VaultChangePlan;
@@ -532,4 +541,111 @@ function declaredRelationship(role: string): CodeTraceRelationship {
 function cleanTraceText(value: unknown, fallback: string, maxLength = 160): string {
   const text = typeof value === "string" ? value.replace(/[|\r\n]+/g, " ").trim() : "";
   return (text || fallback).slice(0, maxLength);
+}
+
+async function requestStructuredResponse<T>(
+  apiKey: string,
+  settings: PluginSettings,
+  instructions: string,
+  input: string,
+  schemaName: string,
+  schema: unknown,
+  maxOutputTokens: number,
+  activity?: AgentActivityContext
+): Promise<T> {
+  const payload = await requestResponsePayload(
+    apiKey,
+    settings,
+    instructions,
+    input,
+    maxOutputTokens,
+    schemaName,
+    schema,
+    `OpenAI ${schemaName} request`,
+    activity
+  );
+  try {
+    return JSON.parse(extractResponseText(payload)) as T;
+  } catch {
+    throw new Error(`The model returned a response that could not be parsed as ${schemaName}.`);
+  }
+}
+
+async function requestResponsePayload(
+  apiKey: string,
+  settings: PluginSettings,
+  instructions: string,
+  input: string | Array<Record<string, unknown>>,
+  maxOutputTokens: number,
+  schemaName: string,
+  schema: unknown,
+  failureLabel: string,
+  activity?: AgentActivityContext
+): Promise<ResponsesPayload> {
+  const startedAt = Date.now();
+  activity?.report({
+    timestamp: new Date(startedAt).toISOString(),
+    agent: activity.agent,
+    status: "started",
+    stageId: activity.stageId,
+    message: activity.label
+  });
+  try {
+    const response = await requestUrl({
+      url: "https://api.openai.com/v1/responses",
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: settings.model,
+        store: false,
+        instructions,
+        input,
+        max_output_tokens: maxOutputTokens,
+        text: {
+          format: {
+            type: "json_schema",
+            name: schemaName,
+            strict: true,
+            schema
+          }
+        }
+      }),
+      throw: false
+    });
+    const payload = response.json as ResponsesPayload;
+    if (response.status >= 400) {
+      throw new Error(payload.error?.message ?? `${failureLabel} failed with status ${response.status}.`);
+    }
+    activity?.report({
+      timestamp: new Date().toISOString(),
+      agent: activity.agent,
+      status: "completed",
+      stageId: activity.stageId,
+      message: `${activity.label} completed`,
+      durationMs: Date.now() - startedAt,
+      usage: parseAgentTokenUsage(payload.usage)
+    });
+    return payload;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    activity?.report({
+      timestamp: new Date().toISOString(),
+      agent: activity.agent,
+      status: "error",
+      stageId: activity.stageId,
+      message,
+      durationMs: Date.now() - startedAt
+    });
+    throw error;
+  }
+}
+
+function responseInput(text: string, images: ReferenceImage[]): string | Array<Record<string, unknown>> {
+  if (images.length === 0) return text;
+  const content: Array<Record<string, unknown>> = [{ type: "input_text", text }];
+  for (const image of images) {
+    content.push({ type: "input_text", text: referenceImagePromptLabel(image) });
+    content.push({ type: "input_image", image_url: image.dataUrl, detail: "auto" });
+  }
+  return [{ role: "user", content }];
 }

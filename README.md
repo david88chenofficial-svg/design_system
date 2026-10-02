@@ -8,12 +8,16 @@ The assistant connects three kinds of work that are normally separated:
 - implementation and tests in source code;
 - calculation, experimental comparison, parameter fitting, plots, and evidence.
 
-The current plugin version is **0.7.0**. It runs inside desktop Obsidian and calls the OpenAI Responses API with the user's own API key. Codex is not required.
+The current plugin version is **0.8.0**. It runs inside desktop Obsidian and calls the OpenAI Responses API with the user's own API key. Codex and the MIMI runtime are not required.
 
 ## What it can do
 
 - Build an engineering workflow from a short analysis or design objective.
 - Give every executable model stage explicit input and output contracts, acceptance checks, and labelled downstream handoffs on the primary Canvas.
+- Accept attached diagrams, equation screenshots, and reference photos while planning a workflow or manual code change.
+- Detect execution-ready stages and order selected code work from upstream models to downstream consumers.
+- Use separate Coder and Verifier roles: the Coder only proposes reviewed code, while the Verifier authors example inputs, controls execution, and judges the resulting evidence.
+- Retry a failed stage with concrete Verifier feedback up to the limit selected in the Copilot window.
 - Add or modify the relevant branch of an existing workflow without reading every note.
 - Read selected source files and map models, equations, functions, tests, and result-generation code to exact workflow records.
 - Propose and apply reviewed Python and engineering-data changes inside configured code roots.
@@ -26,15 +30,15 @@ The current plugin version is **0.7.0**. It runs inside desktop Obsidian and cal
 
 ```text
 User request
-  → local project/code router selects relevant files
-  → selected context is sent to the LLM
-  → LLM returns a structured change/run plan
-  → plugin validates paths, hashes, file types, and commands
-  → user reviews and applies the plan
-  → local Python produces calculations, metrics, and plots
-  → plugin captures the actual outputs
-  → LLM prepares the linked Obsidian workflow/evidence update
-  → user reviews and applies the workflow update
+  → Obsidian builds the model workflow and explicit stage contracts
+  → user selects one, several, or all unresolved executable stages
+  → dependency graph orders upstream stages first
+  → Coder proposes one stage implementation and standard JSON runner
+  → user reviews and applies that code; it is not run yet
+  → independent Verifier chooses example JSON inputs and checks
+  → plugin invokes the runner directly and captures immutable evidence
+  → Verifier returns pass, fail, or inconclusive
+  → failed stages return to the Coder; passed stages unlock the next stage
 ```
 
 The LLM does not independently browse the computer. The plugin supplies bounded file-reading, file-writing, execution, result-capture, and traceability tools. Existing code replacements require the SHA-256 hash observed during review, and every AI-authored change requires an explicit Apply action.
@@ -77,6 +81,7 @@ design_system/
 
 8. Keep the Python executable as `python`, or enter the absolute path to the required interpreter.
 9. Choose a mode, enter a request, inspect the routed files and proposed operations, and apply only the changes you accept.
+10. After applying the workflow, use **Executable workflow stages** to select the boxes that need code. Set **Max attempts**, then choose **Generate/modify selected** or **Generate/modify all unresolved**.
 
 For example:
 
@@ -111,7 +116,7 @@ Add one or more absolute or vault-relative paths under **External code roots for
 
 For a portable download, keep code beside the vault and use a relative path such as `..\seal_calculations_2`. Avoid distributing machine-specific paths such as `D:\...`.
 
-The configured code-root directory must already exist. The plugin can create files within an existing approved root, but version 0.7.0 does not create a new external repository directory automatically.
+The configured external code-root directory must already exist. If a project has no configured or conventional code root, version 0.8.0 creates a safe `code/` folder inside that selected project when staged generation begins.
 
 ## Workflow and scientific visualization
 
@@ -149,6 +154,8 @@ This is a local, review-first prototype:
 - Code/data writes are limited to permitted file types inside configured engineering roots.
 - Deletion, renaming, hidden-path writes, parent traversal, inline Python, interactive Python, package-install commands, and arbitrary shell execution are blocked.
 - Approved Python scripts run locally with the same operating-system permissions as Obsidian, so users must review generated code before applying and executing it.
+- In the staged workflow, applying Coder output never executes it. Only the Verifier can create cases that the deterministic controller runs, using the configured Python executable without a shell.
+- Passing, failing, and inconclusive results are stored per stage. Contract changes, code-file changes, and newer upstream verification automatically mark dependent results stale.
 - Passing code tests is not physical validation, and fitting calibration data is not independent validation.
 
 See the [complete workspace guide](Engineering_Workflow_AI/README.md), [plugin guide](Engineering_Workflow_AI/Engineering%20Workflow%20AI%20-%20Plugin%20Guide.md), and [code traceability contract](Engineering_Workflow_AI/Code%20Traceability%20Contract.md) for details.

@@ -126,6 +126,19 @@ describe("engineering code changes", () => {
         reason: "bad"
       }]
     }, context)).toThrow(/hash/);
+    expect(() => validateEngineeringCodePlan({
+      ...base,
+      operations: [{
+        operation_id: "overwrite-evidence",
+        action: "create",
+        root_index: 0,
+        path: "verification_results/forged.json",
+        expected_hash: "",
+        search: "",
+        content: "{}\n",
+        reason: "bad"
+      }]
+    }, context)).toThrow(/controller-owned/);
   });
 
   it("executes an approved script directly and captures declared text results", async () => {
@@ -166,5 +179,38 @@ describe("engineering code changes", () => {
     expect(report.runs[0].success).toBe(true);
     expect(report.runs[0].outputs[0]).toMatchObject({ exists: true });
     expect(report.runs[0].outputs[0].excerpt).toContain('"rmse":0.25');
+  });
+
+  it("does not apply a reviewed plan after its session is aborted", async () => {
+    const root = await temporaryDirectory();
+    const context = await readEngineeringCodeContext(await buildEngineeringFileManifest([root]), {
+      focus: "aborted change",
+      rationale: "test",
+      selected_files: [],
+      needs_more_context: false
+    }, 4, 20_000);
+    const plan: EngineeringCodePlan = {
+      summary: "Create a file",
+      assistant_message: "Ready",
+      operations: [{
+        operation_id: "create-after-abort",
+        action: "create",
+        root_index: 0,
+        path: "should-not-exist.py",
+        expected_hash: "",
+        search: "",
+        content: "value = 1\n",
+        reason: "Exercise cancellation."
+      }],
+      runs: [],
+      warnings: [],
+      verification_checks: []
+    };
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(applyEngineeringCodePlan(plan, context, "python", controller.signal))
+      .rejects.toMatchObject({ name: "AbortError" });
+    await expect(fs.stat(path.join(root, "should-not-exist.py"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 });

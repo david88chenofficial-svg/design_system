@@ -2,6 +2,35 @@ export type WorkflowMode = "auto" | "build" | "evolve" | "audit" | "engineer";
 export type PlanMode = "build" | "evolve" | "audit";
 export type OperationAction = "create" | "replace";
 
+export type AgentActivityAgent = "System" | "Router" | "Planner" | "Coder" | "Verifier" | "Runner";
+export type AgentActivityStatus = "started" | "progress" | "completed" | "error" | "aborted";
+
+export interface AgentTokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+
+export interface AgentActivityEvent {
+  timestamp: string;
+  agent: AgentActivityAgent;
+  status: AgentActivityStatus;
+  message: string;
+  stageId?: string;
+  durationMs?: number;
+  usage?: AgentTokenUsage;
+  details?: string[];
+}
+
+export type AgentActivityReporter = (event: AgentActivityEvent) => void;
+
+export interface AgentActivityContext {
+  agent: AgentActivityAgent;
+  label: string;
+  stageId?: string;
+  report: AgentActivityReporter;
+}
+
 export interface PluginSettings {
   model: string;
   maxFiles: number;
@@ -13,8 +42,48 @@ export interface PluginSettings {
   pythonExecutable: string;
   maxCodeFiles: number;
   maxCodeContextChars: number;
+  maxStageAttempts: number;
+  stageExecutionByProject: Record<string, Record<string, StageExecutionRecord>>;
   openOnStartup: boolean;
   activeProjectPath: string;
+}
+
+export interface ReferenceImage {
+  name: string;
+  mimeType: string;
+  dataUrl: string;
+  projectRelativePath: string;
+}
+
+export type StageExecutionStatus =
+  | "missing-code"
+  | "unverified"
+  | "verified"
+  | "stale"
+  | "failed"
+  | "inconclusive";
+
+export interface ExecutableStage {
+  id: string;
+  title: string;
+  path: string;
+  contract: string;
+  contractHash: string;
+  dependencies: string[];
+  status: StageExecutionStatus;
+  codeLinked: boolean;
+}
+
+export interface StageExecutionRecord {
+  stageId: string;
+  contractHash: string;
+  verdict: "pass" | "fail" | "inconclusive";
+  attempts: number;
+  codeFiles: string[];
+  codeHashes?: Record<string, string>;
+  dependencySignatures?: Record<string, string>;
+  summary: string;
+  updatedAt: string;
 }
 
 export type CodeChangeStatus = "added" | "modified" | "removed";
@@ -304,4 +373,71 @@ export interface EngineeringApplyReport {
   created: string[];
   modified: string[];
   runs: AnalysisRunResult[];
+}
+
+export interface ModelRunnerSpec {
+  root_index: number;
+  path: string;
+}
+
+export interface StageCodePlan {
+  stage_id: string;
+  summary: string;
+  assistant_message: string;
+  operations: CodeEditOperation[];
+  runner: ModelRunnerSpec | null;
+  warnings: string[];
+}
+
+export interface StageVerificationCase {
+  case_id: string;
+  input_json: string;
+  checks: string[];
+}
+
+export interface StageVerificationPlan {
+  stage_id: string;
+  summary: string;
+  cases: StageVerificationCase[];
+  warnings: string[];
+  blocked_reason: string;
+}
+
+export interface StageVerificationCaseResult {
+  case_id: string;
+  input_path: string;
+  output_path: string;
+  success: boolean;
+  exit_code: number | null;
+  stdout: string;
+  stderr: string;
+  output_exists: boolean;
+  output_hash: string;
+  output_text: string;
+  checks: string[];
+}
+
+export interface StageVerificationProgress {
+  phase: "started" | "completed";
+  caseId: string;
+  index: number;
+  total: number;
+  success?: boolean;
+  exitCode?: number | null;
+}
+
+export interface StageVerificationCheckResult {
+  check: string;
+  status: "pass" | "fail" | "inconclusive";
+  evidence: string;
+}
+
+export interface StageVerificationVerdict {
+  stage_id: string;
+  verdict: "pass" | "fail" | "inconclusive";
+  summary: string;
+  key_numbers: string[];
+  checks: StageVerificationCheckResult[];
+  feedback: string[];
+  failure_modes: string[];
 }

@@ -23,6 +23,8 @@ const DEFAULT_SETTINGS: PluginSettings = {
   pythonExecutable: "python",
   maxCodeFiles: 8,
   maxCodeContextChars: 120_000,
+  maxStageAttempts: 3,
+  stageExecutionByProject: {},
   openOnStartup: true,
   activeProjectPath: ""
 };
@@ -88,6 +90,8 @@ export default class EngineeringWorkflowAIPlugin extends Plugin {
     if (!this.settings.pythonExecutable) this.settings.pythonExecutable = DEFAULT_SETTINGS.pythonExecutable;
     if (!Number.isFinite(this.settings.maxCodeFiles)) this.settings.maxCodeFiles = DEFAULT_SETTINGS.maxCodeFiles;
     if (!Number.isFinite(this.settings.maxCodeContextChars)) this.settings.maxCodeContextChars = DEFAULT_SETTINGS.maxCodeContextChars;
+    if (!Number.isFinite(this.settings.maxStageAttempts)) this.settings.maxStageAttempts = DEFAULT_SETTINGS.maxStageAttempts;
+    if (!this.settings.stageExecutionByProject || typeof this.settings.stageExecutionByProject !== "object") this.settings.stageExecutionByProject = {};
     if (loaded?.contextStrategyVersion !== DEFAULT_SETTINGS.contextStrategyVersion) {
       this.settings.maxFiles = DEFAULT_SETTINGS.maxFiles;
       this.settings.maxContextChars = DEFAULT_SETTINGS.maxContextChars;
@@ -154,7 +158,7 @@ class EngineeringWorkflowAISettingTab extends PluginSettingTab {
         }));
     new Setting(this.containerEl)
       .setName("External code roots for selected project")
-      .setDesc(`Optional absolute or vault-relative paths for ${this.plugin.settings.activeProjectPath || "the selected project"}, one per line. Project code/ and src/ folders are detected automatically. Code + workflow mode may edit these roots after preview and approval.`)
+      .setDesc(`Optional absolute or vault-relative paths for ${this.plugin.settings.activeProjectPath || "the selected project"}, one per line. Project code/ and src/ folders are detected automatically. Staged and manual code plans may edit these roots after preview and approval.`)
       .addTextArea((text) => text
         .setPlaceholder("D:\\Engineering\\my-code")
         .setValue((this.plugin.settings.codeRootsByProject[this.plugin.settings.activeProjectPath] ?? []).join("\n"))
@@ -200,6 +204,18 @@ class EngineeringWorkflowAISettingTab extends PluginSettingTab {
           const parsed = Number.parseInt(value, 10);
           if (Number.isFinite(parsed) && parsed >= 20_000 && parsed <= 400_000) {
             this.plugin.settings.maxCodeContextChars = parsed;
+            await this.plugin.saveSettings();
+          }
+        }));
+    new Setting(this.containerEl)
+      .setName("Maximum stage attempts")
+      .setDesc("Default Coder → Verifier attempts per executable workflow stage. The Copilot window can change this value.")
+      .addText((text) => text
+        .setValue(String(this.plugin.settings.maxStageAttempts))
+        .onChange(async (value) => {
+          const parsed = Number.parseInt(value, 10);
+          if (Number.isFinite(parsed) && parsed >= 1 && parsed <= 8) {
+            this.plugin.settings.maxStageAttempts = parsed;
             await this.plugin.saveSettings();
           }
         }));
